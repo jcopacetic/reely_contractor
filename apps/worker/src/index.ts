@@ -1,0 +1,33 @@
+import { Worker, type Job } from 'bullmq'
+import { CONTRACTOR_QUEUE, connection } from './connection'
+
+const SERVICE = 'contractor-worker'
+
+/**
+ * Contractor background worker. Processes the contractor queue (notifications dispatch + the weekly
+ * billing-cycle in Phase 2). Job handlers register as their modules land; an unknown job throws.
+ */
+async function processJob(job: Job): Promise<void> {
+  switch (job.name) {
+    default:
+      throw new Error(`unknown job: ${job.name}`)
+  }
+}
+
+async function main() {
+  const worker = new Worker(CONTRACTOR_QUEUE, processJob, { connection, concurrency: 4 })
+  worker.on('ready', () => console.log(`${SERVICE} ready on queue "${CONTRACTOR_QUEUE}"`))
+  worker.on('failed', (job, err) => console.error(`job ${job?.name} failed:`, err.message))
+
+  const shutdown = async () => {
+    await worker.close()
+    process.exit(0)
+  }
+  process.on('SIGTERM', shutdown)
+  process.on('SIGINT', shutdown)
+}
+
+main().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})

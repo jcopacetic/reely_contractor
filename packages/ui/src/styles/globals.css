@@ -1,0 +1,174 @@
+/* Reely — shared token theme (canonical: reely/00-Foundation/Reely-Design-System.md).
+   ONE shared theme across every node so the portfolio reads as one product.
+   shadcn-native, OKLCH, Tailwind v4. Light default; dark fully supported.
+   Hard constraint: tokens are the only styling source — no hardcoded hex/fonts/radii. */
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0.975 0.012 83);        /* warm cream — gives the page a finished, paper-like base */
+  --foreground: oklch(0.24 0.03 285);
+  --card: oklch(1 0 0);                        /* pure white — lifts cleanly off the cream background */
+  --card-foreground: oklch(0.24 0.03 285);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.24 0.03 285);
+  --primary: oklch(0.55 0.20 285);            /* vivid indigo-violet — intelligent curiosity */
+  --primary-foreground: oklch(0.99 0.004 270);
+  --secondary: oklch(0.95 0.02 285);
+  --secondary-foreground: oklch(0.30 0.04 285);
+  --muted: oklch(0.955 0.013 80);             /* warm-neutral surface — harmonizes with the cream base */
+  --muted-foreground: oklch(0.52 0.03 285);
+  --accent: oklch(0.72 0.16 35);              /* warm coral — collector-card delight */
+  --accent-foreground: oklch(0.22 0.03 285);
+  --destructive: oklch(0.58 0.21 27);
+  --destructive-foreground: oklch(0.99 0.004 270);
+  --success: oklch(0.62 0.14 150);
+  --success-foreground: oklch(0.99 0.004 270);
+  --warning: oklch(0.80 0.13 85);
+  --warning-foreground: oklch(0.24 0.03 285);
+  --info: oklch(0.62 0.12 230);
+  --info-foreground: oklch(0.99 0.004 270);
+  --border: oklch(0.885 0.012 78);            /* warmer + a touch more defined — clearer edges */
+  --input: oklch(0.885 0.012 78);
+  --ring: oklch(0.55 0.20 285);
+  --chart-1: oklch(0.55 0.20 285);
+  --chart-2: oklch(0.72 0.16 35);
+  --chart-3: oklch(0.65 0.13 195);
+  --chart-4: oklch(0.80 0.13 85);
+  --chart-5: oklch(0.60 0.16 320);
+  --radius: 0.5rem;
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  /* Soft, lifted, warm-tinted shadows — the "collectible-card" depth the design system calls for.
+     Source vars; mapped into the shadow-* utilities via @theme below so every card/surface uses them. */
+  --ds-shadow-sm: 0 1px 2px oklch(0.30 0.045 60 / 0.10);
+  --ds-shadow-md: 0 4px 14px oklch(0.30 0.045 60 / 0.12), 0 1px 3px oklch(0.30 0.045 60 / 0.07);
+  --ds-shadow-lg: 0 16px 38px oklch(0.30 0.045 60 / 0.17), 0 4px 10px oklch(0.30 0.045 60 / 0.10);
+}
+
+.dark {
+  --background: oklch(0.20 0.025 285);         /* deep indigo charcoal — not flat black */
+  --foreground: oklch(0.95 0.01 285);
+  --card: oklch(0.24 0.025 285);
+  --card-foreground: oklch(0.95 0.01 285);
+  --popover: oklch(0.24 0.025 285);
+  --popover-foreground: oklch(0.95 0.01 285);
+  --primary: oklch(0.70 0.18 285);
+  --primary-foreground: oklch(0.18 0.02 285);
+  --secondary: oklch(0.30 0.03 285);
+  --secondary-foreground: oklch(0.92 0.01 285);
+  --muted: oklch(0.30 0.03 285);
+  --muted-foreground: oklch(0.70 0.025 285);
+  --accent: oklch(0.74 0.15 38);
+  --accent-foreground: oklch(0.18 0.02 285);
+  --destructive: oklch(0.64 0.20 27);
+  --destructive-foreground: oklch(0.95 0.01 285);
+  --success: oklch(0.68 0.14 150);
+  --success-foreground: oklch(0.18 0.02 285);
+  --warning: oklch(0.82 0.13 85);
+  --warning-foreground: oklch(0.18 0.02 285);
+  --info: oklch(0.68 0.12 230);
+  --info-foreground: oklch(0.18 0.02 285);
+  --border: oklch(0.32 0.025 285);
+  --input: oklch(0.32 0.025 285);
+  --ring: oklch(0.70 0.18 285);
+  --chart-1: oklch(0.70 0.18 285);
+  --chart-2: oklch(0.74 0.15 38);
+  --chart-3: oklch(0.70 0.12 195);
+  --chart-4: oklch(0.82 0.13 85);
+  --chart-5: oklch(0.66 0.15 320);
+  /* On the dark charcoal, neutral/black shadows read truer than warm ones. */
+  --ds-shadow-sm: 0 1px 2px oklch(0 0 0 / 0.30);
+  --ds-shadow-md: 0 4px 14px oklch(0 0 0 / 0.38), 0 1px 3px oklch(0 0 0 / 0.30);
+  --ds-shadow-lg: 0 16px 38px oklch(0 0 0 / 0.46), 0 4px 10px oklch(0 0 0 / 0.34);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 6px);
+  --radius-full: 9999px;
+  --font-display: var(--font-display);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  /* Wire the design-system shadows into the shadow-sm/md/lg utilities (light/dark resolve via the
+     source vars above). Cards pair a border WITH a shadow; deepen on hover at the call site. */
+  --shadow-sm: var(--ds-shadow-sm);
+  --shadow-md: var(--ds-shadow-md);
+  --shadow-lg: var(--ds-shadow-lg);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+}
+
+/* The one signature motion moment: staggered "flipping through a collection" reveal on browse.
+   Card-lift on hover is composed from Tailwind utilities at the call site. */
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility reveal-up {
+  animation: reveal-up 220ms ease-out both;
+}
+
+/* ── Accessibility ────────────────────────────────────────────────────────────
+   A visible keyboard focus ring on every interactive element (brand ring color). :focus-visible
+   only triggers for keyboard/assistive-tech focus, so mouse users don't see it. */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal-up {
+    animation: none;
+  }
+}
