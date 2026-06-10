@@ -1,0 +1,17 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Dedupe ioredis to one version so bullmq and our worker share the same Redis type/instance.
+overrides:
+  ioredis: "5.11.1"
+
+# Native/postinstall build scripts approved for this workspace (all first-party tooling).
+allowBuilds:
+  '@clerk/shared': true
+  '@prisma/client': true
+  '@prisma/engines': true
+  esbuild: true
+  msgpackr-extract: true
+  prisma: true
+  sharp: true

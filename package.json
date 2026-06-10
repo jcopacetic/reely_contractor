@@ -1,0 +1,26 @@
+{
+  "name": "reely-contractor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Contractor — Reely's vetted-only contractor club + work marketplace. Built per reely/BUILD-PROTOCOL.md from contractor.manifest.json. USER-scoped (no tenant); contractor_identity is a verified layer on the base Clerk User. Provides contractor.listing/bid/contract/time_entry to Board; the hire seam plugs into Board's hiring-bridge. Built social-club-first (a recorded deviation from the manifest's work-first v1).",
+  "packageManager": "pnpm@11.2.2",
+  "engines": { "node": ">=20.0.0" },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @contractor/db generate",
+    "db:migrate": "pnpm --filter @contractor/db migrate",
+    "db:rls": "pnpm --filter @contractor/db rls",
+    "db:seed": "pnpm --filter @contractor/db seed",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.2"
+  }
+}

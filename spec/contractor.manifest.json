@@ -1,0 +1,1071 @@
+{
+  "identity": {
+    "appId": "contractor",
+    "appName": "Reely Contractor",
+    "version": "1.0.0",
+    "tagline": "A vetted-only contractor club where work history is system-generated, the contract is a living container, and the whole machine plugs into the Board hire seam.",
+    "problem": "Freelance marketplaces optimize for self-promotion; the real signal — did this person do the work, on time, under contract — is buried. Reely already generates work (Board projects, BDA strategy); it needs a trusted supply side that plugs straight into that work via contract-granted access.",
+    "primaryUser": "A vetted contractor: browses the job-feed, bids, signs contracts, runs the timer, gets paid, and maintains a public profile.",
+    "currentSolution": "Upwork/Fiverr-style marketplaces + manual hand-off; nothing ties a contractor's record to actual platform work or into a hire seam.",
+    "coreWedge": "Vetted membership + system-driven work history + a living contract bound directly into Board through build-time contracts. Reputation is the actual Reely work record.",
+    "createdAt": "2026-06-05T00:00:00Z",
+    "manifestVersion": "1.0",
+    "moduleModel": "static",
+    "portfolio": { "id": "reely", "node": "contractor", "surface": "contractor.reely.io" }
+  },
+
+  "stack": {
+    "deviations": [
+      { "layer": "auth-tenancy", "from": "clerk-organizations", "to": "user-scoped (no tenant)", "reason": "Per Reely-Identity-Model.md, Contractor is user-scoped and owns contractor_identity (a verified profile on the base User). There is no tenant overlay at all — simpler than Board's self-owned tenant. Access is user-scoped + participant-scoped." },
+      { "layer": "realtime", "from": "socket.io", "to": "supabase-realtime", "reason": "Scoped to messaging + bid arrival; RLS-filtered by participant; delay-tolerant. Reuses the same RLS as the DB." }
+    ],
+    "addons": [
+      { "name": "Stripe Connect (Express)", "purpose": "Marketplace payments: platform-initiated delayed charges at weekly cycle close after the dispute window; take-rate; payouts. Not escrow.", "layer": "payments" },
+      { "name": "Browser extension (timer)", "purpose": "Time-tracking client that writes time_entry and also drives Board's contractor-view timer.", "layer": "surface" }
+    ],
+    "resolved": {
+      "monorepo": "turborepo",
+      "packageManager": "pnpm",
+      "frontend": "next.js",
+      "apiLayer": "trpc",
+      "validation": "zod",
+      "ui": "shadcn+tailwind",
+      "stateClient": "zustand",
+      "stateServer": "tanstack-query",
+      "backend": "fastify",
+      "auth": "clerk",
+      "orm": "prisma",
+      "realtime": "supabase-realtime",
+      "queue": "bullmq",
+      "email": "resend",
+      "sms": null,
+      "payments": "stripe-connect-express",
+      "ai": null,
+      "db": "supabase-postgres",
+      "cache": "upstash-redis",
+      "storage": "cloudflare-r2",
+      "backendHost": "railway",
+      "frontendHost": "vercel",
+      "errors": "sentry",
+      "analytics": "posthog",
+      "logging": "axiom"
+    }
+  },
+
+  "roles": [
+    { "id": "contractor", "label": "Contractor (vetted)", "scope": "user", "clerkRole": "member",
+      "capabilities": ["Browse the job-feed, bid, negotiate", "Sign/participate in contracts", "Run the timer, log time", "Get paid (Stripe Express)", "Maintain a public + professional profile"],
+      "cannotAccess": ["Another User's user-scoped data", "Non-party contracts/bids/threads", "Vetting/ops/admin", "Anything before vetting"] },
+    { "id": "applicant", "label": "Applicant (un-vetted)", "scope": "user", "clerkRole": "member",
+      "capabilities": ["Submit an application / redeem an invite", "Hold a profile draft", "View application status"],
+      "cannotAccess": ["Bidding, contracts, time, payouts (all vetting-gated)"] },
+    { "id": "platform_admin", "label": "Platform Admin (single-admin v1)", "scope": "platform", "clerkRole": "admin",
+      "capabilities": ["Vetting queue (approve/reject)", "Invite management", "skill_category management", "Ops oversight", "Controller"],
+      "cannotAccess": ["Silent edits to contract/financial content"] },
+    { "id": "system", "label": "System", "scope": "platform", "clerkRole": null,
+      "capabilities": ["Vetting transitions, billing-cycle worker, Stripe reconciliation, notifications, realtime fan-out, event emission, provider intake"],
+      "cannotAccess": ["Cross-relationship provider reads beyond the scoped resource"] }
+  ],
+  "publicAccess": {
+    "exists": true,
+    "description": "One public surface: the contractor marketing profile at /c/[public_slug] — an unauthenticated read of a safe field subset only when is_public=true; a non-public slug 404s. Everything else is Clerk-authenticated. Clients are not a Contractor role; they appear only as opaque Clerk User ids on two-party entities."
+  },
+
+  "modules": [
+    {
+      "id": "contractor-identity", "name": "Contractor Identity", "version": "1.0.0", "scope": "mvp", "accessType": "core", "environmentType": "background",
+      "triggers": [
+        { "id": "apply", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["applicant"], "cooldownSeconds": 0 },
+        { "id": "redeem-invite", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["applicant"], "cooldownSeconds": 0 },
+        { "id": "review", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["platform_admin"], "cooldownSeconds": 0 },
+        { "id": "vetting-effects", "type": "event", "eventTypes": ["contractor.approved", "contractor.rejected"], "cron": null, "webhookSource": null, "permissions": ["system"], "cooldownSeconds": 0 }
+      ],
+      "dataAccess": {
+        "reads": ["contractor_identity", "application", "invite"],
+        "writes": ["contractor_identity", "application", "invite"],
+        "emitsEvents": [
+          { "type": "application.submitted", "when": "an application is submitted", "payloadShape": { "userId": "string", "source": "string" } },
+          { "type": "contractor.approved", "when": "an applicant is approved", "payloadShape": { "userId": "string" } },
+          { "type": "contractor.rejected", "when": "an applicant is rejected", "payloadShape": { "userId": "string" } },
+          { "type": "contractor.suspended", "when": "a contractor is suspended", "payloadShape": { "userId": "string" } }
+        ]
+      },
+      "portal": { "sections": [], "assets": [] },
+      "endpoints": [
+        { "id": "apply", "label": "Apply", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "redeem-invite", "label": "Redeem invite", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "get-status", "label": "Get status", "method": "GET", "scope": "query", "auth": "session", "testable": true },
+        { "id": "create-invite", "label": "Create invite", "method": "POST", "scope": "action", "auth": "admin", "testable": true },
+        { "id": "review", "label": "Review", "method": "POST", "scope": "action", "auth": "admin", "testable": true },
+        { "id": "approve", "label": "Approve", "method": "POST", "scope": "action", "auth": "admin", "testable": true },
+        { "id": "reject", "label": "Reject", "method": "POST", "scope": "action", "auth": "admin", "testable": true },
+        { "id": "suspend", "label": "Suspend", "method": "POST", "scope": "action", "auth": "admin", "testable": true }
+      ],
+      "configFields": [
+        { "key": "inviteExpiryDays", "type": "number", "enumValues": null, "default": 30, "min": 1, "max": 365, "label": "Invite expiry (days)", "description": null },
+        { "key": "singleAdmin", "type": "boolean", "enumValues": null, "default": true, "min": null, "max": null, "label": "Single admin (v1)", "description": "Multi-reviewer-ready." }
+      ],
+      "stateMachine": { "field": "contractor_identity.status", "states": ["applicant", "vetted", "suspended"], "transitions": "approve: applicant->vetted; suspend: vetted->suspended; reinstate: suspended->vetted" },
+      "comms": [ { "id": "vetting-email", "channel": "email", "trigger": "approved | rejected", "audience": "applicant", "template": "vetting-decision" } ],
+      "disableBehavior": { "clearsStateKeys": [], "cancelsPendingJobs": false, "sendsNotification": false, "maxMs": null },
+      "outOfScope": ["Profile content (profile)", "Enforcing gated endpoints (each module calls the gate)", "Payments", "The video-call tool (manual link)"],
+      "dependsOn": [],
+      "dependencyNotes": "Foundational. Exposes ctx.identity.requireVetted() — the hard-gate the whole node enforces.",
+      "acceptanceCriteria": [
+        "State machine correct; approve flips status=vetted + vetted_at; suspend closes the gate immediately",
+        "requireVetted() is the gate every privileged write checks",
+        "Invite codes unique + expire; single-admin v1, multi-reviewer-ready",
+        "user-scope-isolation + vetting-gate harness passes"
+      ]
+    },
+    {
+      "id": "profile", "name": "Profile", "version": "1.0.0", "scope": "mvp", "accessType": "core", "environmentType": "background",
+      "triggers": [
+        { "id": "edit", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 },
+        { "id": "get-public", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["public"], "cooldownSeconds": 0 },
+        { "id": "rollup-refresh", "type": "event", "eventTypes": ["contract.status.changed", "time_entry.approved"], "cron": null, "webhookSource": null, "permissions": ["system"], "cooldownSeconds": 0 }
+      ],
+      "dataAccess": {
+        "reads": ["contractor_profile", "skill_category"],
+        "writes": ["contractor_profile"],
+        "emitsEvents": [ { "type": "profile.updated", "when": "a profile is edited", "payloadShape": { "userId": "string" } } ]
+      },
+      "portal": {
+        "sections": [
+          { "id": "public-profile", "label": "Public marketing profile", "placement": "public", "userTypes": ["public"], "defaultVisible": true, "stateKey": "profile.public", "realtime": false },
+          { "id": "profile-editor", "label": "Profile editor", "placement": "dashboard", "userTypes": ["contractor"], "defaultVisible": true, "stateKey": "profile.edit", "realtime": false }
+        ],
+        "assets": []
+      },
+      "endpoints": [
+        { "id": "get-own", "label": "Get own profile", "method": "GET", "scope": "query", "auth": "session", "testable": true },
+        { "id": "update", "label": "Update profile", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "set-public", "label": "Set public", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "set-slug", "label": "Set slug", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "get-public", "label": "Get public profile (safe subset)", "method": "GET", "scope": "query", "auth": "public", "testable": true }
+      ],
+      "configFields": [
+        { "key": "maxLinks", "type": "number", "enumValues": null, "default": 10, "min": 0, "max": 50, "label": "Max links", "description": "Simpler-than-Linktree." },
+        { "key": "slugPattern", "type": "string", "enumValues": null, "default": "lowercase-kebab", "min": null, "max": null, "label": "Slug pattern", "description": null }
+      ],
+      "stateMachine": null,
+      "comms": [],
+      "disableBehavior": { "clearsStateKeys": [], "cancelsPendingJobs": false, "sendsNotification": false, "maxMs": null },
+      "outOfScope": ["Vetting (contractor-identity)", "skill_category management (contractor-admin)", "Social profile/feed (staged)", "Financial data (never on the profile)"],
+      "dependsOn": ["contractor-identity"],
+      "dependencyNotes": "Public surface returns only the safe subset when is_public; rollups are system-driven (read-only).",
+      "acceptanceCriteria": [
+        "get-public returns only {display_name, headline, bio, category_ids, avatar_url, links, contracts_completed, hours_logged} and only when is_public; non-public slug 404s",
+        "Rollups read-only, refreshed on contract/time events",
+        "public_slug unique; user-scope on private fields",
+        "public-field-discipline + user-scope-isolation harness passes"
+      ]
+    },
+    {
+      "id": "marketplace", "name": "Marketplace", "version": "1.0.0", "scope": "mvp", "accessType": "core", "environmentType": "background",
+      "triggers": [
+        { "id": "create-listing", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor", "system"], "cooldownSeconds": 0 },
+        { "id": "bid-actions", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 },
+        { "id": "bid-response", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 },
+        { "id": "provider-intake", "type": "webhook", "eventTypes": [], "cron": null, "webhookSource": "board", "permissions": ["system"], "cooldownSeconds": 0 }
+      ],
+      "dataAccess": {
+        "reads": ["listing", "bid", "skill_category"],
+        "writes": ["listing", "bid"],
+        "emitsEvents": [
+          { "type": "listing.posted", "when": "a listing is published", "payloadShape": { "listingId": "uuid", "ownerUserId": "string", "boardPartRef": "string|null" } },
+          { "type": "bid.submitted", "when": "a bid is submitted", "payloadShape": { "listingId": "uuid", "bidId": "uuid", "bidderUserId": "string" } },
+          { "type": "bid.countered", "when": "a bid is countered", "payloadShape": { "bidId": "uuid" } },
+          { "type": "bid.denied", "when": "a bid is denied", "payloadShape": { "bidId": "uuid" } },
+          { "type": "bid.accepted", "when": "a bid is accepted (signals contract creation)", "payloadShape": { "listingId": "uuid", "bidId": "uuid" } }
+        ]
+      },
+      "portal": { "sections": [], "assets": [] },
+      "endpoints": [
+        { "id": "create-listing", "label": "Create listing", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "get-listing", "label": "Get listing", "method": "GET", "scope": "query", "auth": "session", "testable": true },
+        { "id": "submit-bid", "label": "Submit bid", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "withdraw-bid", "label": "Withdraw bid", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "counter-bid", "label": "Counter bid", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "deny-bid", "label": "Deny bid", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "accept-bid", "label": "Accept bid", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "get-bids-for-listing", "label": "Get bids", "method": "GET", "scope": "query", "auth": "session", "testable": true },
+        { "id": "provider-create-listing", "label": "POST /provider/listings", "method": "POST", "scope": "action", "auth": "service_key", "testable": true },
+        { "id": "provider-get-bids", "label": "GET /provider/listings/{id}/bids", "method": "GET", "scope": "query", "auth": "service_key", "testable": true }
+      ],
+      "configFields": [ { "key": "maxBidsPerListing", "type": "number", "enumValues": null, "default": 100, "min": 1, "max": 1000, "label": "Max bids / listing", "description": null } ],
+      "stateMachine": { "field": "bid.status", "states": ["submitted", "countered", "denied", "accepted", "withdrawn"], "transitions": "submitted->countered|denied|accepted|withdrawn; countered->accepted|denied|withdrawn" },
+      "comms": [],
+      "disableBehavior": { "clearsStateKeys": [], "cancelsPendingJobs": false, "sendsNotification": false, "maxMs": null },
+      "outOfScope": ["The browse surface (job-feed)", "Contract creation/lifecycle (contracts)", "Message transport (messaging)"],
+      "dependsOn": ["contractor-identity"],
+      "dependencyNotes": "Owns listing + bid; submit/accept enforce requireVetted; provider endpoints are service-key + resource-scoped; board_part_ref is an opaque reference.",
+      "acceptanceCriteria": [
+        "submit-bid/accept-bid enforce requireVetted; bids participant-scoped (bidder + owner)",
+        "Provider endpoints verify the service key AND resource ownership; never an unscoped collection",
+        "board_part_ref treated as an opaque reference (no FK/JOIN)",
+        "Counters route to messaging; accept-bid signals contract creation",
+        "vetting-gate + participant-scope-isolation + provider-scope + cross-app-reference-integrity harness passes"
+      ]
+    },
+    {
+      "id": "job-feed", "name": "Job Feed", "version": "1.0.0", "scope": "mvp", "accessType": "core", "environmentType": "background",
+      "triggers": [ { "id": "browse", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 } ],
+      "dataAccess": { "reads": ["listing", "skill_category"], "writes": [], "emitsEvents": [] },
+      "portal": {
+        "sections": [ { "id": "work-feed", "label": "Find Work", "placement": "dashboard", "userTypes": ["contractor"], "defaultVisible": true, "stateKey": "feed.work", "realtime": true } ],
+        "assets": []
+      },
+      "endpoints": [
+        { "id": "list-listings", "label": "List/filter listings", "method": "GET", "scope": "query", "auth": "session", "testable": true },
+        { "id": "get-feed-listing", "label": "Feed listing detail", "method": "GET", "scope": "query", "auth": "session", "testable": true }
+      ],
+      "configFields": [ { "key": "feedPageSize", "type": "number", "enumValues": null, "default": 50, "min": 10, "max": 200, "label": "Feed page size", "description": null } ],
+      "stateMachine": null, "comms": [],
+      "disableBehavior": { "clearsStateKeys": [], "cancelsPendingJobs": false, "sendsNotification": false, "maxMs": null },
+      "outOfScope": ["Bid lifecycle (marketplace)", "Contract creation (contracts)", "The social feed (staged)"],
+      "dependsOn": ["marketplace", "contractor-identity"],
+      "dependencyNotes": "The v1 work-feed (not the social feed). Render/browse over listing; bid affordance delegates to marketplace.",
+      "acceptanceCriteria": [
+        "Vetted-only browse; category filter via GIN-indexed category_ids; budget/status filters",
+        "Board-originated listings render identically to native",
+        "Valid empty / N=1 state; render-only (no writes)",
+        "vetting-gate harness passes"
+      ]
+    },
+    {
+      "id": "contracts", "name": "Contracts", "version": "1.0.0", "scope": "mvp", "accessType": "core", "environmentType": "background",
+      "triggers": [
+        { "id": "create-contract", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor", "system"], "cooldownSeconds": 0 },
+        { "id": "manage", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 },
+        { "id": "provider-intake", "type": "webhook", "eventTypes": [], "cron": null, "webhookSource": "board", "permissions": ["system"], "cooldownSeconds": 0 }
+      ],
+      "dataAccess": {
+        "reads": ["contract", "contract_item", "bid", "listing"],
+        "writes": ["contract", "contract_item"],
+        "emitsEvents": [
+          { "type": "contract.created", "when": "a contract is created (lets Board mint its grant)", "payloadShape": { "contractId": "uuid", "clientUserId": "string", "contractorUserId": "string", "boardRef": "string|null" } },
+          { "type": "contract.item.added", "when": "an item is added", "payloadShape": { "contractId": "uuid", "itemId": "uuid" } },
+          { "type": "contract.status.changed", "when": "status changes", "payloadShape": { "contractId": "uuid", "to": "string" } }
+        ]
+      },
+      "portal": {
+        "sections": [ { "id": "contract-workspace", "label": "Contract workspace", "placement": "dashboard", "userTypes": ["contractor"], "defaultVisible": true, "stateKey": "contracts.workspace", "realtime": true } ],
+        "assets": []
+      },
+      "endpoints": [
+        { "id": "create-contract", "label": "Create contract", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "get-contract", "label": "Get contract", "method": "GET", "scope": "query", "auth": "session", "testable": true },
+        { "id": "add-item", "label": "Add item", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "update-item", "label": "Update item", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "update-status", "label": "Update status", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "provider-create-contract", "label": "POST /provider/contracts", "method": "POST", "scope": "action", "auth": "service_key", "testable": true },
+        { "id": "provider-get-contract", "label": "GET /provider/contracts/{id}", "method": "GET", "scope": "query", "auth": "service_key", "testable": true }
+      ],
+      "configFields": [ { "key": "maxItemsPerContract", "type": "number", "enumValues": null, "default": 500, "min": 1, "max": 5000, "label": "Max items / contract", "description": null } ],
+      "stateMachine": { "field": "contract.status", "states": ["active", "paused", "completed", "cancelled"], "transitions": "active<->paused; active|paused->completed|cancelled" },
+      "comms": [],
+      "disableBehavior": { "clearsStateKeys": [], "cancelsPendingJobs": false, "sendsNotification": false, "maxMs": null },
+      "outOfScope": ["Time tracking (time)", "Billing/charge (payments)", "Messaging (messaging)", "Board's grant itself (Board access-control)"],
+      "dependsOn": ["marketplace", "contractor-identity"],
+      "dependencyNotes": "Owns contract (the expandable living container) + contract_item. contract.id is the stable contract_ref Board grants against. Provider create on hire.",
+      "acceptanceCriteria": [
+        "Living container: items added over time; the contract is never re-created to extend it",
+        "Participant-scoped (client + contractor); contractor party must be vetted",
+        "create-contract references an accepted bid/listing the caller owns; board_ref opaque",
+        "contract.created lets Board mint its grant",
+        "participant-scope-isolation + provider-scope + cross-app-reference-integrity + vetting-gate harness passes"
+      ]
+    },
+    {
+      "id": "time", "name": "Time", "version": "1.0.0", "scope": "mvp", "accessType": "core", "environmentType": "interactive",
+      "triggers": [
+        { "id": "timer", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 },
+        { "id": "approve", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 },
+        { "id": "provider-read", "type": "webhook", "eventTypes": [], "cron": null, "webhookSource": "board", "permissions": ["system"], "cooldownSeconds": 0 }
+      ],
+      "dataAccess": {
+        "reads": ["time_entry", "contract"],
+        "writes": ["time_entry"],
+        "emitsEvents": [
+          { "type": "time_entry.created", "when": "an entry is created", "payloadShape": { "contractId": "uuid", "entryId": "uuid", "source": "string" } },
+          { "type": "time_entry.approved", "when": "a client approves an entry", "payloadShape": { "contractId": "uuid", "entryId": "uuid" } }
+        ]
+      },
+      "portal": {
+        "sections": [ { "id": "time-tracker", "label": "Time", "placement": "dashboard", "userTypes": ["contractor"], "defaultVisible": true, "stateKey": "time.tracker", "realtime": false } ],
+        "assets": []
+      },
+      "endpoints": [
+        { "id": "start", "label": "Start timer", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "stop", "label": "Stop timer", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "manual-entry", "label": "Manual entry", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "list-time", "label": "List time", "method": "GET", "scope": "query", "auth": "session", "testable": true },
+        { "id": "approve", "label": "Approve entry", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "provider-get-time", "label": "GET /provider/contracts/{id}/time-entries", "method": "GET", "scope": "query", "auth": "service_key", "testable": true },
+        { "id": "provider-approve-time", "label": "POST /provider/time-entries/{id}/approve", "method": "POST", "scope": "action", "auth": "service_key", "testable": true }
+      ],
+      "configFields": [
+        { "key": "maxRunningHours", "type": "number", "enumValues": null, "default": 12, "min": 1, "max": 24, "label": "Max running hours (auto-stop)", "description": null },
+        { "key": "minEntrySeconds", "type": "number", "enumValues": null, "default": 60, "min": 1, "max": 3600, "label": "Min entry seconds", "description": null }
+      ],
+      "stateMachine": null,
+      "comms": [],
+      "disableBehavior": { "clearsStateKeys": [], "cancelsPendingJobs": false, "sendsNotification": false, "maxMs": null },
+      "outOfScope": ["Billing/charge (payments)", "The extension client itself (extension runtime)", "Board's timer UI (consumes via provider)"],
+      "dependsOn": ["contracts", "contractor-identity"],
+      "dependencyNotes": "Owns time_entry; timer + extension + manual; only approved time bills. Provider read/approve scoped to the named contract.",
+      "acceptanceCriteria": [
+        "Entries write the right source; a running entry has null ended_at until stopped",
+        "Only the contractor writes own entries; only the contract's client sets approved",
+        "Only approved entries are billable",
+        "Provider read/approve scoped to the named contract; no unscoped time export",
+        "user-scope-isolation + participant-scope-isolation + provider-scope + approved-time-only harness passes"
+      ]
+    },
+    {
+      "id": "payments", "name": "Payments", "version": "1.0.0", "scope": "mvp", "accessType": "core", "environmentType": "background",
+      "triggers": [
+        { "id": "connect-onboard", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 },
+        { "id": "billing-cycle", "type": "scheduled", "eventTypes": [], "cron": "0 18 * * 0", "webhookSource": null, "permissions": ["system"], "cooldownSeconds": 0 },
+        { "id": "stripe-webhook", "type": "webhook", "eventTypes": [], "cron": null, "webhookSource": "stripe", "permissions": ["system"], "cooldownSeconds": 0 },
+        { "id": "dispute", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 },
+        { "id": "resolve-dispute", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["platform_admin"], "cooldownSeconds": 0 }
+      ],
+      "dataAccess": {
+        "reads": ["billing_cycle", "charge", "payout", "dispute", "stripe_account", "contract", "time_entry"],
+        "writes": ["billing_cycle", "charge", "payout", "dispute", "stripe_account"],
+        "emitsEvents": [
+          { "type": "cycle.opened", "when": "a weekly cycle opens", "payloadShape": { "contractId": "uuid", "cycleId": "uuid" } },
+          { "type": "dispute_window.opened", "when": "a cycle closes into the dispute window", "payloadShape": { "cycleId": "uuid", "endsAt": "timestamp" } },
+          { "type": "payment.charged", "when": "a platform-initiated charge succeeds", "payloadShape": { "cycleId": "uuid", "chargeId": "uuid", "grossAmount": "number" } },
+          { "type": "payment.failed", "when": "a charge fails", "payloadShape": { "cycleId": "uuid", "reason": "string" } },
+          { "type": "dispute.opened", "when": "a dispute is raised", "payloadShape": { "cycleId": "uuid", "disputeId": "uuid" } },
+          { "type": "dispute.resolved", "when": "a dispute resolves", "payloadShape": { "disputeId": "uuid", "resolution": "string" } },
+          { "type": "payout.paid", "when": "a payout transfers", "payloadShape": { "chargeId": "uuid", "payoutId": "uuid" } }
+        ]
+      },
+      "portal": {
+        "sections": [ { "id": "payouts", "label": "Settings / Payouts", "placement": "dashboard", "userTypes": ["contractor"], "defaultVisible": true, "stateKey": "payments.settings", "realtime": false } ],
+        "assets": []
+      },
+      "endpoints": [
+        { "id": "connect-onboard", "label": "Stripe onboarding", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "get-account-status", "label": "Account status", "method": "GET", "scope": "query", "auth": "session", "testable": true },
+        { "id": "raise-dispute", "label": "Raise dispute", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "resolve-dispute", "label": "Resolve dispute", "method": "POST", "scope": "action", "auth": "admin", "testable": true },
+        { "id": "stripe-webhook", "label": "Stripe webhook", "method": "POST", "scope": "action", "auth": "signature", "testable": true },
+        { "id": "run-billing-cycle", "label": "Run billing cycle (worker)", "method": "POST", "scope": "action", "auth": "system", "testable": true }
+      ],
+      "configFields": [
+        { "key": "cycleCloseDayHour", "type": "string", "enumValues": null, "default": "Sun 18:00", "min": null, "max": null, "label": "Cycle close", "description": "Weekly 6pm Sun -> 6pm Sun." },
+        { "key": "disputeWindowDays", "type": "number", "enumValues": null, "default": 7, "min": 1, "max": 30, "label": "Dispute window (days)", "description": null },
+        { "key": "takeRatePct", "type": "number", "enumValues": null, "default": null, "min": 0, "max": 100, "label": "Take rate %", "description": "Flag-gated; parked." },
+        { "key": "currency", "type": "string", "enumValues": null, "default": "usd", "min": null, "max": null, "label": "Currency", "description": null }
+      ],
+      "stateMachine": { "field": "billing_cycle.status", "states": ["open", "dispute_window", "charged", "disputed", "voided"], "transitions": "open->dispute_window->charged; dispute_window->disputed->(charged|voided)" },
+      "comms": [ { "id": "payment-email", "channel": "email", "trigger": "payment.charged | dispute.opened", "audience": "client + contractor", "template": "payment" } ],
+      "disableBehavior": { "clearsStateKeys": [], "cancelsPendingJobs": true, "sendsNotification": true, "maxMs": null },
+      "outOfScope": ["Time approval + the timer (time)", "Escrow (explicitly not used)", "Board's billing UI", "The take-rate business decision (flag)"],
+      "dependsOn": ["contracts", "time", "contractor-identity"],
+      "dependencyNotes": "The financial core. Stripe Connect Express; weekly cycle; delayed platform-initiated charge after the dispute window; take-rate; payouts. Not escrow.",
+      "acceptanceCriteria": [
+        "One billing_cycle per (contract_id, period_start); worker upserts, never duplicates",
+        "Charge only on dispute_window->charged, now > dispute_window_ends_at, no open dispute",
+        "Idempotent charge (idempotency_key + unique billing_cycle_id); webhook signature-verified + idempotent on event id",
+        "Cycle totals sum only approved time; take_rate stored on cycle + charge; net = gross - take_rate",
+        "Payout only after a succeeded charge; Express onboarding gates payout",
+        "N=1 path runs close -> window -> charge -> payout cleanly",
+        "All financial + webhook-signature + webhook-idempotency harness assertions pass"
+      ]
+    },
+    {
+      "id": "messaging", "name": "Messaging", "version": "1.0.0", "scope": "mvp", "accessType": "core", "environmentType": "interactive",
+      "triggers": [
+        { "id": "message-actions", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 },
+        { "id": "subscribe", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 }
+      ],
+      "dataAccess": {
+        "reads": ["message_thread", "message"],
+        "writes": ["message_thread", "message"],
+        "emitsEvents": [ { "type": "message.sent", "when": "a message is sent", "payloadShape": { "threadId": "uuid", "senderUserId": "string" } } ]
+      },
+      "portal": {
+        "sections": [ { "id": "messages", "label": "Messages", "placement": "dashboard", "userTypes": ["contractor"], "defaultVisible": true, "stateKey": "messages", "realtime": true } ],
+        "assets": []
+      },
+      "endpoints": [
+        { "id": "list-threads", "label": "List threads", "method": "GET", "scope": "query", "auth": "session", "testable": true },
+        { "id": "get-thread", "label": "Get thread", "method": "GET", "scope": "query", "auth": "session", "testable": true },
+        { "id": "send-message", "label": "Send message", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "mark-read", "label": "Mark read", "method": "POST", "scope": "action", "auth": "session", "testable": true },
+        { "id": "subscribe", "label": "Subscribe (RLS-scoped)", "method": "GET", "scope": "query", "auth": "session", "testable": true }
+      ],
+      "configFields": [ { "key": "maxMessageLen", "type": "number", "enumValues": null, "default": 5000, "min": 1, "max": 20000, "label": "Max message length", "description": null } ],
+      "stateMachine": null, "comms": [],
+      "disableBehavior": { "clearsStateKeys": [], "cancelsPendingJobs": false, "sendsNotification": false, "maxMs": null },
+      "outOfScope": ["General/social DMs (staged)", "The bid lifecycle (marketplace)", "The notification bell/email (notifications)"],
+      "dependsOn": ["marketplace", "contracts", "contractor-identity"],
+      "dependencyNotes": "Hire-loop only in v1; threads bound to a listing/contract; realtime participant-filtered.",
+      "acceptanceCriteria": [
+        "A thread is bound to a listing or contract and visible only to its two parties",
+        "A counter from marketplace opens/appends the relevant thread",
+        "Realtime delivers new messages only to thread participants; delay-tolerant; refetch authoritative",
+        "participant-scope-isolation + realtime-rls harness passes"
+      ]
+    },
+    {
+      "id": "notifications", "name": "Notifications", "version": "1.0.0", "scope": "mvp", "accessType": "core", "environmentType": "background",
+      "triggers": [
+        { "id": "dispatch", "type": "event", "eventTypes": ["bid.submitted", "bid.accepted", "bid.denied", "message.sent", "contract.created", "payment.charged", "payment.failed", "dispute.opened", "dispute.resolved", "contractor.approved", "contractor.rejected"], "cron": null, "webhookSource": null, "permissions": ["system"], "cooldownSeconds": 0 },
+        { "id": "read", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["contractor"], "cooldownSeconds": 0 }
+      ],
+      "dataAccess": { "reads": ["notification"], "writes": ["notification"], "emitsEvents": [] },
+      "portal": { "sections": [], "assets": [] },
+      "endpoints": [
+        { "id": "list-notifications", "label": "List notifications", "method": "GET", "scope": "query", "auth": "session", "testable": true },
+        { "id": "mark-read", "label": "Mark read", "method": "POST", "scope": "action", "auth": "session", "testable": true }
+      ],
+      "configFields": [
+        { "key": "emailEventTypes", "type": "multiselect", "enumValues": ["bid_accepted", "hired", "payment_charged", "dispute_opened", "vetting_decision"], "default": ["bid_accepted", "hired", "payment_charged", "dispute_opened", "vetting_decision"], "min": null, "max": null, "label": "Email event types", "description": null },
+        { "key": "maxPerRecipientPerMin", "type": "number", "enumValues": null, "default": 30, "min": 1, "max": 600, "label": "Max / recipient / min", "description": "Throttle." }
+      ],
+      "stateMachine": null,
+      "comms": [ { "id": "notify-email", "channel": "email", "trigger": "configured emailEventTypes", "audience": "client or contractor", "template": "notification" } ],
+      "disableBehavior": { "clearsStateKeys": [], "cancelsPendingJobs": false, "sendsNotification": false, "maxMs": null },
+      "outOfScope": ["The message thread transport (messaging)", "DMs", "Realtime channel mechanics beyond publishing the bell"],
+      "dependsOn": ["contractor-identity"],
+      "dependencyNotes": "Sole writer of notification; bell via ctx.realtime, email via ctx.comms; consumes events from most modules.",
+      "acceptanceCriteria": [
+        "Bell for hire-loop + payment/cycle + dispute + vetting; email only for the configured set",
+        "Recipients resolved by user/participant scope; bidirectional",
+        "Sole writer of notification; user-scoped reads; throttled",
+        "user-scope-isolation harness passes"
+      ]
+    },
+    {
+      "id": "contractor-admin", "name": "Contractor Admin", "version": "1.0.0", "scope": "mvp", "accessType": "core", "environmentType": "interactive",
+      "triggers": [
+        { "id": "admin-action", "type": "manual", "eventTypes": [], "cron": null, "webhookSource": null, "permissions": ["platform_admin"], "cooldownSeconds": 0 },
+        { "id": "command", "type": "event", "eventTypes": ["controller.command.received"], "cron": null, "webhookSource": null, "permissions": ["system"], "cooldownSeconds": 0 }
+      ],
+      "dataAccess": {
+        "reads": ["application", "invite", "report_summary", "feature_flag", "skill_category", "contract", "charge", "dispute"],
+        "writes": ["skill_category", "feature_flag"],
+        "emitsEvents": [ { "type": "admin.config.changed", "when": "a category/flag/config changes", "payloadShape": { "actorId": "string", "change": "object" } } ]
+      },
+      "portal": {
+        "sections": [ { "id": "admin-console", "label": "Contractor admin", "placement": "dashboard", "userTypes": ["platform_admin"], "defaultVisible": true, "stateKey": "admin.contractor", "realtime": false } ],
+        "assets": []
+      },
+      "endpoints": [
+        { "id": "vetting-queue", "label": "Vetting queue", "method": "GET", "scope": "query", "auth": "admin", "testable": true },
+        { "id": "manage-categories", "label": "Manage skill categories", "method": "POST", "scope": "action", "auth": "admin", "testable": true },
+        { "id": "ops-summary", "label": "Ops summary", "method": "GET", "scope": "query", "auth": "admin", "testable": true },
+        { "id": "flags", "label": "Feature flags", "method": "POST", "scope": "action", "auth": "admin", "testable": true }
+      ],
+      "configFields": [ { "key": "summaryRefreshSeconds", "type": "number", "enumValues": null, "default": 300, "min": 30, "max": 3600, "label": "Summary refresh (s)", "description": null } ],
+      "stateMachine": null, "comms": [],
+      "disableBehavior": { "clearsStateKeys": [], "cancelsPendingJobs": false, "sendsNotification": false, "maxMs": null },
+      "outOfScope": ["The vetting state machine itself (contractor-identity)", "Tenant settings (none — user-scoped node)", "End-user contract/financial edits"],
+      "dependsOn": ["contractor-identity"],
+      "dependencyNotes": "Single-admin console; owns skill_category; delegates vetting decisions to contractor-identity; controller integration.",
+      "acceptanceCriteria": [
+        "Every endpoint rejects non-platform_admin",
+        "Manages the curated skill_category vocabulary (not derived from Catalog taxonomy)",
+        "Surfaces the vetting queue, delegates approve/reject to contractor-identity",
+        "Ops summaries from report_summary; never silently edits contract/financial content",
+        "Controller commands idempotent (pause_payments, pause_vetting, recompute_summary); admin-only harness passes"
+      ]
+    }
+  ],
+
+  "dataModel": {
+    "multiTenancy": { "tenantTable": null, "isolationStrategy": "user_and_participant_rls", "clerkOrgMapping": false },
+    "sensitiveDataTypes": ["pii", "payment"],
+    "auditLog": true,
+    "tables": [
+      {
+        "id": "contractor_identity", "name": "ContractorIdentity", "layer": "account", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "the principal" },
+          { "name": "clerk_user_id", "type": "string", "primaryKey": false, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "base User" },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "applicant", "encrypted": false, "indexed": true, "relationTo": null, "enumValues": ["applicant", "vetted", "suspended"], "notes": "the vetting gate" },
+          { "name": "vetted_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "custom", "delete": "none", "customPolicy": "User-scoped: self read/update of non-status fields; status writable by admin/system only." },
+        "seedData": [], "notes": "Realizes the reserved contractor_identity seam."
+      },
+      {
+        "id": "application", "name": "Application", "layer": "account", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "clerk_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "source", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["apply", "invite"], "notes": null },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "submitted", "encrypted": false, "indexed": true, "relationTo": null, "enumValues": ["submitted", "in_review", "approved", "rejected"], "notes": null },
+          { "name": "video_link", "type": "string", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "out-of-system call link (manual v1)" },
+          { "name": "reviewer_id", "type": "string", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "admin Clerk id" },
+          { "name": "notes", "type": "text", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "internal" },
+          { "name": "decided_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "platform_admin_only", "delete": "none", "customPolicy": "Applicant reads own; admin reads/writes all." },
+        "seedData": [], "notes": "Vetting lifecycle."
+      },
+      {
+        "id": "invite", "name": "Invite", "layer": "account", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "email", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "code", "type": "string", "primaryKey": false, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "redemption token" },
+          { "name": "invited_by", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "admin Clerk id" },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "sent", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["sent", "accepted", "expired"], "notes": null },
+          { "name": "accepted_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "platform_admin_only", "insert": "platform_admin_only", "update": "custom", "delete": "platform_admin_only", "customPolicy": "Admin-managed; redemption updates status by code." },
+        "seedData": [], "notes": "Invite system."
+      },
+      {
+        "id": "contractor_profile", "name": "ContractorProfile", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "contractor_identity_id", "type": "relation", "primaryKey": false, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": "contractor_identity", "enumValues": null, "notes": "1:1" },
+          { "name": "display_name", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "public" },
+          { "name": "headline", "type": "string", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "public" },
+          { "name": "bio", "type": "text", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "public" },
+          { "name": "category_ids", "type": "jsonb", "primaryKey": false, "unique": false, "nullable": false, "default": "[]", "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "skill_category ids; GIN; filter source; public labels" },
+          { "name": "is_public", "type": "boolean", "primaryKey": false, "unique": false, "nullable": false, "default": false, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "gates the public surface" },
+          { "name": "public_slug", "type": "string", "primaryKey": false, "unique": true, "nullable": true, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "shareable URL" },
+          { "name": "avatar_url", "type": "string", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "R2; public" },
+          { "name": "links", "type": "jsonb", "primaryKey": false, "unique": false, "nullable": false, "default": "[]", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "[{label,url}]; public" },
+          { "name": "contracts_completed", "type": "int", "primaryKey": false, "unique": false, "nullable": false, "default": "0", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "system-driven rollup; public" },
+          { "name": "hours_logged", "type": "numeric", "primaryKey": false, "unique": false, "nullable": false, "default": "0", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "system-driven rollup; public" },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "updated_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "custom", "delete": "none", "customPolicy": "Self read/write; public read of the safe subset only when is_public; rollups system-written." },
+        "seedData": [], "notes": "Public marketing + professional profile."
+      },
+      {
+        "id": "skill_category", "name": "SkillCategory", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "name", "type": "string", "primaryKey": false, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "slug", "type": "string", "primaryKey": false, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "active", "type": "boolean", "primaryKey": false, "unique": false, "nullable": false, "default": true, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "order", "type": "int", "primaryKey": false, "unique": false, "nullable": false, "default": "0", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "platform_admin_only", "update": "platform_admin_only", "delete": "platform_admin_only", "customPolicy": "Public/session read; admin-managed. Not derived from Catalog taxonomy." },
+        "seedData": [], "notes": "Curated skill vocabulary."
+      },
+      {
+        "id": "listing", "name": "Listing", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": true,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "owner_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "client Clerk id (Board member or native)" },
+          { "name": "board_part_ref", "type": "string", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "opaque Board part id (ref, not FK)" },
+          { "name": "title", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "description", "type": "text", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "the brief" },
+          { "name": "category_ids", "type": "jsonb", "primaryKey": false, "unique": false, "nullable": false, "default": "[]", "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "GIN; filter source" },
+          { "name": "budget_type", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["hourly", "fixed"], "notes": null },
+          { "name": "budget_amount", "type": "numeric", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "open", "encrypted": false, "indexed": true, "relationTo": null, "enumValues": ["open", "closed", "filled"], "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "closed_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "custom", "delete": "custom", "customPolicy": "Read by any vetted contractor (browse) + owner; write by owner or Board (provider)." },
+        "seedData": [], "notes": "Provided to Board."
+      },
+      {
+        "id": "bid", "name": "Bid", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "listing_id", "type": "relation", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": "listing", "enumValues": null, "notes": null },
+          { "name": "bidder_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "vetted contractor" },
+          { "name": "rate_type", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["hourly", "fixed"], "notes": null },
+          { "name": "amount", "type": "numeric", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "hours_estimate", "type": "numeric", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "message", "type": "text", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "submitted", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["submitted", "countered", "denied", "accepted", "withdrawn"], "notes": null },
+          { "name": "counter_of", "type": "relation", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": "bid", "enumValues": null, "notes": "self-ref for counters" },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "updated_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "custom", "delete": "none", "customPolicy": "Participant: bidder + listing owner. Insert requires vetted." },
+        "seedData": [], "notes": "Provided to Board."
+      },
+      {
+        "id": "contract", "name": "Contract", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "the contract_ref Board grants against" },
+          { "name": "listing_id", "type": "relation", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": true, "relationTo": "listing", "enumValues": null, "notes": "nullable (direct contracts allowed)" },
+          { "name": "client_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "counterparty" },
+          { "name": "contractor_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "vetted contractor" },
+          { "name": "board_ref", "type": "string", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "opaque Board id (ref, not FK)" },
+          { "name": "title", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "rate_type", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["hourly", "fixed"], "notes": null },
+          { "name": "rate_amount", "type": "numeric", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "active", "encrypted": false, "indexed": true, "relationTo": null, "enumValues": ["active", "paused", "completed", "cancelled"], "notes": null },
+          { "name": "started_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "ended_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "updated_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "custom", "delete": "none", "customPolicy": "Participant: client + contractor. Contractor party must be vetted." },
+        "seedData": [], "notes": "The expandable living container; provided to Board."
+      },
+      {
+        "id": "contract_item", "name": "ContractItem", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "contract_id", "type": "relation", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": "contract", "enumValues": null, "notes": null },
+          { "name": "kind", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["milestone", "scope_add", "deliverable", "note"], "notes": null },
+          { "name": "title", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "description", "type": "text", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "amount", "type": "numeric", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "open", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["open", "done", "void"], "notes": null },
+          { "name": "order", "type": "int", "primaryKey": false, "unique": false, "nullable": false, "default": "0", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "custom", "delete": "custom", "customPolicy": "Inherits the parent contract's participant scope." },
+        "seedData": [], "notes": "The expandable parts."
+      },
+      {
+        "id": "time_entry", "name": "TimeEntry", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "contract_id", "type": "relation", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": "contract", "enumValues": null, "notes": null },
+          { "name": "contractor_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "owner" },
+          { "name": "started_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "ended_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "null while running" },
+          { "name": "duration_seconds", "type": "int", "primaryKey": false, "unique": false, "nullable": false, "default": "0", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "description", "type": "text", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "source", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["timer", "extension", "manual"], "notes": null },
+          { "name": "approved", "type": "boolean", "primaryKey": false, "unique": false, "nullable": false, "default": false, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "only approved time bills" },
+          { "name": "approved_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "billing_cycle_id", "type": "relation", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": true, "relationTo": "billing_cycle", "enumValues": null, "notes": "set when swept into a cycle" },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "custom", "delete": "custom", "customPolicy": "Contractor read/write own; the contract's client may read + set approved." },
+        "seedData": [], "notes": "Provided to Board."
+      },
+      {
+        "id": "message_thread", "name": "MessageThread", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "listing_id", "type": "relation", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": true, "relationTo": "listing", "enumValues": null, "notes": null },
+          { "name": "contract_id", "type": "relation", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": true, "relationTo": "contract", "enumValues": null, "notes": "one of listing/contract set" },
+          { "name": "client_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "contractor_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "last_message_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "custom", "delete": "none", "customPolicy": "Participants only (client + contractor)." },
+        "seedData": [], "notes": "Hire-loop scope (general DMs staged)."
+      },
+      {
+        "id": "message", "name": "Message", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "thread_id", "type": "relation", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": "message_thread", "enumValues": null, "notes": null },
+          { "name": "sender_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "body", "type": "text", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "read_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "custom", "delete": "none", "customPolicy": "Thread participants only." },
+        "seedData": [], "notes": null
+      },
+      {
+        "id": "stripe_account", "name": "StripeAccount", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "contractor_user_id", "type": "string", "primaryKey": false, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "stripe_account_id", "type": "string", "primaryKey": false, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "Express connected account" },
+          { "name": "charges_enabled", "type": "boolean", "primaryKey": false, "unique": false, "nullable": false, "default": false, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "payouts_enabled", "type": "boolean", "primaryKey": false, "unique": false, "nullable": false, "default": false, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "gates payout" },
+          { "name": "kyc_status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "pending", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["pending", "verified", "restricted"], "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "updated_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "platform_admin_only", "delete": "none", "customPolicy": "User-scoped self read; status fields written by Stripe webhook (system)." },
+        "seedData": [], "notes": "Connected account."
+      },
+      {
+        "id": "billing_cycle", "name": "BillingCycle", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "contract_id", "type": "relation", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": "contract", "enumValues": null, "notes": null },
+          { "name": "period_start", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "6pm Sunday" },
+          { "name": "period_end", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "6pm next Sunday" },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "open", "encrypted": false, "indexed": true, "relationTo": null, "enumValues": ["open", "dispute_window", "charged", "disputed", "voided"], "notes": null },
+          { "name": "total_seconds", "type": "int", "primaryKey": false, "unique": false, "nullable": false, "default": "0", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "sum of approved time" },
+          { "name": "total_amount", "type": "numeric", "primaryKey": false, "unique": false, "nullable": false, "default": "0", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "take_rate_amount", "type": "numeric", "primaryKey": false, "unique": false, "nullable": false, "default": "0", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "computed at close" },
+          { "name": "dispute_window_ends_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "close + 7 days" },
+          { "name": "charged_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "platform_admin_only", "update": "platform_admin_only", "delete": "none", "customPolicy": "Participants read; system/worker writes. UNIQUE (contract_id, period_start)." },
+        "seedData": [], "notes": "The weekly close; idempotency anchor."
+      },
+      {
+        "id": "charge", "name": "Charge", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "billing_cycle_id", "type": "relation", "primaryKey": false, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": "billing_cycle", "enumValues": null, "notes": "one charge per cycle" },
+          { "name": "stripe_payment_intent_id", "type": "string", "primaryKey": false, "unique": true, "nullable": true, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "client_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "charged party" },
+          { "name": "contractor_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "gross_amount", "type": "numeric", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "take_rate_amount", "type": "numeric", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "net_amount", "type": "numeric", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "to contractor" },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "pending", "encrypted": false, "indexed": true, "relationTo": null, "enumValues": ["pending", "succeeded", "failed", "refunded"], "notes": null },
+          { "name": "idempotency_key", "type": "string", "primaryKey": false, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "Stripe idempotency" },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "succeeded_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "platform_admin_only", "update": "platform_admin_only", "delete": "none", "customPolicy": "Participants read; system writes. Unique billing_cycle_id + idempotency_key." },
+        "seedData": [], "notes": "Platform-initiated delayed charge."
+      },
+      {
+        "id": "payout", "name": "Payout", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "charge_id", "type": "relation", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": "charge", "enumValues": null, "notes": null },
+          { "name": "stripe_transfer_id", "type": "string", "primaryKey": false, "unique": true, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "contractor_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "amount", "type": "numeric", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "net to contractor" },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "pending", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["pending", "paid", "failed"], "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "platform_admin_only", "update": "platform_admin_only", "delete": "none", "customPolicy": "Contractor reads own; system writes. Created only after a succeeded charge." },
+        "seedData": [], "notes": "Transfer to the connected account."
+      },
+      {
+        "id": "dispute", "name": "Dispute", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "billing_cycle_id", "type": "relation", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": "billing_cycle", "enumValues": null, "notes": null },
+          { "name": "raised_by_user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "client or contractor" },
+          { "name": "reason", "type": "text", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "open", "encrypted": false, "indexed": true, "relationTo": null, "enumValues": ["open", "resolved_charge", "resolved_void"], "notes": null },
+          { "name": "resolution_note", "type": "text", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "resolved_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "custom", "update": "platform_admin_only", "delete": "none", "customPolicy": "Participants raise/read; admin resolves. An open dispute blocks the charge." },
+        "seedData": [], "notes": "Dispute-window record."
+      },
+      {
+        "id": "feature_flag", "name": "FeatureFlag", "layer": "app-specific", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "key", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "ctx.flags" },
+          { "name": "user_id", "type": "string", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "null = global; set = per-user override" },
+          { "name": "enabled", "type": "boolean", "primaryKey": false, "unique": false, "nullable": false, "default": false, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "created_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "custom", "insert": "platform_admin_only", "update": "platform_admin_only", "delete": "platform_admin_only", "customPolicy": "Global flags admin-only; per-user overrides readable by that user." },
+        "seedData": [], "notes": "BASELINE-SAAS furniture."
+      },
+      {
+        "id": "app_event", "name": "AppEvent", "layer": "analytics", "tenantScoped": false, "appendOnly": true, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "source", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "type", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "actor_id", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "actor_type", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["contractor", "applicant", "admin", "client", "system", "controller"], "notes": null },
+          { "name": "payload", "type": "jsonb", "primaryKey": false, "unique": false, "nullable": false, "default": "{}", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "occurred_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "platform_admin_only", "insert": "platform_admin_only", "update": "none", "delete": "none", "customPolicy": "Append-only; system-written via ctx.events; admin reads." },
+        "seedData": [], "notes": "Immutable platform event log (user-scoped platform; no tenant)."
+      },
+      {
+        "id": "report_summary", "name": "ReportSummary", "layer": "analytics", "tenantScoped": false, "appendOnly": false, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "scope", "type": "string", "primaryKey": false, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "vetting | marketplace | contracts | payments" },
+          { "name": "data", "type": "jsonb", "primaryKey": false, "unique": false, "nullable": false, "default": "{}", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "computed_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": false, "default": "now()", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "stale", "type": "boolean", "primaryKey": false, "unique": false, "nullable": false, "default": false, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "platform_admin_only", "insert": "platform_admin_only", "update": "platform_admin_only", "delete": "platform_admin_only", "customPolicy": "Platform aggregates." },
+        "seedData": [], "notes": "Controller report data."
+      },
+      {
+        "id": "controller_command", "name": "ControllerCommand", "layer": "app-specific", "tenantScoped": false, "appendOnly": true, "softDelete": false,
+        "fields": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "command_id", "type": "string", "primaryKey": false, "unique": true, "nullable": false, "default": null, "encrypted": false, "indexed": true, "relationTo": null, "enumValues": null, "notes": "idempotency key" },
+          { "name": "command", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": "pause_payments | pause_vetting | recompute_summary" },
+          { "name": "issued_by", "type": "string", "primaryKey": false, "unique": false, "nullable": false, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "status", "type": "enum", "primaryKey": false, "unique": false, "nullable": false, "default": "queued", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": ["queued", "executed", "rejected", "unknown_command"], "notes": null },
+          { "name": "params", "type": "jsonb", "primaryKey": false, "unique": false, "nullable": false, "default": "{}", "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "result", "type": "jsonb", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null },
+          { "name": "executed_at", "type": "timestamp", "primaryKey": false, "unique": false, "nullable": true, "default": null, "encrypted": false, "indexed": false, "relationTo": null, "enumValues": null, "notes": null }
+        ],
+        "rlsPolicy": { "select": "platform_admin_only", "insert": "platform_admin_only", "update": "platform_admin_only", "delete": "none", "customPolicy": "Controller/system only." },
+        "seedData": [], "notes": "Inbound controller command log + idempotency."
+      }
+    ],
+    "relationships": [
+      { "from": "contractor_profile", "to": "contractor_identity", "type": "one-to-one", "via": null, "notes": null },
+      { "from": "bid", "to": "listing", "type": "many-to-one", "via": null, "notes": null },
+      { "from": "contract", "to": "listing", "type": "many-to-one", "via": null, "notes": "nullable" },
+      { "from": "contract_item", "to": "contract", "type": "many-to-one", "via": null, "notes": "living container" },
+      { "from": "time_entry", "to": "contract", "type": "many-to-one", "via": null, "notes": null },
+      { "from": "billing_cycle", "to": "contract", "type": "many-to-one", "via": null, "notes": "unique (contract_id, period_start)" },
+      { "from": "charge", "to": "billing_cycle", "type": "one-to-one", "via": null, "notes": null },
+      { "from": "payout", "to": "charge", "type": "many-to-one", "via": null, "notes": null },
+      { "from": "dispute", "to": "billing_cycle", "type": "many-to-one", "via": null, "notes": null },
+      { "from": "message", "to": "message_thread", "type": "many-to-one", "via": null, "notes": null },
+      { "from": "listing.board_part_ref", "to": null, "type": "cross-app", "via": "board_part_ref", "notes": "External Board part; reference only, never FK." },
+      { "from": "contract.board_ref", "to": null, "type": "cross-app", "via": "board_ref", "notes": "External Board id; reference only, never FK." }
+    ]
+  },
+
+  "surfaces": [
+    {
+      "id": "public-profile", "name": "Public Marketing Profile", "type": "public-page", "auth": "none", "roles": ["public"],
+      "deviceContext": "responsive", "realtime": false, "realtimeMechanism": null, "seoRequired": true, "renderStrategy": "isr",
+      "routes": [ { "path": "/c/[public_slug]", "component": "Public profile (safe subset)", "auth": false, "notes": "link-only; non-public slug 404s; the only public surface" } ],
+      "designConstraints": ["Safe field subset only", "No financial/client data", "Simpler-than-Linktree", "No public directory in v1", "BrandRef-themed"],
+      "notes": "Resolves the public-face question; club interior stays private."
+    },
+    {
+      "id": "club-app", "name": "Club App", "type": "dashboard", "auth": "clerk_session", "roles": ["contractor", "applicant"],
+      "deviceContext": "responsive", "realtime": true, "realtimeMechanism": "supabase-realtime", "seoRequired": false, "renderStrategy": "ssr",
+      "routes": [
+        { "path": "/work", "component": "Job-feed (work feed)", "auth": true, "notes": "vetted" },
+        { "path": "/work/[listingId]", "component": "Listing detail + bid", "auth": true, "notes": null },
+        { "path": "/bids", "component": "My bids", "auth": true, "notes": null },
+        { "path": "/contracts/[contractId]", "component": "Contract workspace (items, time, messages, billing-cycle panel)", "auth": true, "notes": "centerpiece" },
+        { "path": "/time", "component": "Timer + entries", "auth": true, "notes": null },
+        { "path": "/messages", "component": "Hire-loop threads", "auth": true, "notes": null },
+        { "path": "/profile", "component": "Profile editor", "auth": true, "notes": null },
+        { "path": "/settings", "component": "Stripe onboarding + extension pairing", "auth": true, "notes": null }
+      ],
+      "designConstraints": ["Vetting-gated affordances (hidden until vetted)", "Async; refetch authoritative", "Valid empty/N=1 states", "Stripe onboarding banner until verified", "Desktop+mobile responsive", "BrandRef-themed"],
+      "notes": "Applicant state = limited shell (status + profile draft)."
+    },
+    {
+      "id": "admin", "name": "Admin Console", "type": "dashboard", "auth": "clerk_session", "roles": ["platform_admin"],
+      "deviceContext": "desktop", "realtime": false, "realtimeMechanism": null, "seoRequired": false, "renderStrategy": "ssr",
+      "routes": [ { "path": "/admin", "component": "Vetting queue, categories, ops, controller", "auth": true, "notes": "single-admin v1" } ],
+      "designConstraints": ["platform_admin only", "No silent edits to contract/financial content"],
+      "notes": null
+    },
+    {
+      "id": "extension", "name": "Browser-Extension Timer", "type": "extension", "auth": "clerk_session", "roles": ["contractor"],
+      "deviceContext": "extension", "realtime": false, "realtimeMechanism": null, "seoRequired": false, "renderStrategy": "extension",
+      "routes": [],
+      "designConstraints": ["Start/stop against an active contract", "Writes time_entry source=extension", "Drives Board's contractor-view timer", "Offline ticks reconcile on reconnect"],
+      "notes": "Paired via Settings."
+    }
+  ],
+
+  "integrations": [
+    {
+      "id": "clerk", "name": "Clerk (auth only)", "scope": "mvp", "type": "auth", "direction": "both",
+      "webhooksIn": [ { "event": "user.created", "handler": "/webhooks/clerk", "verificationMethod": "hmac_sha256", "action": "Attach a User; profile/application created in-app." } ],
+      "webhooksOut": [], "oauthScopes": [null],
+      "envVars": [ { "key": "CLERK_SECRET_KEY", "description": "Clerk backend key", "secret": true, "source": "Clerk dashboard" } ],
+      "complianceImplications": ["gdpr"],
+      "notes": "User authentication only — no organizations, no tenants (user-scoped node)."
+    },
+    {
+      "id": "stripe-connect", "name": "Stripe Connect (Express)", "scope": "mvp", "type": "payments", "direction": "both",
+      "webhooksIn": [ { "event": "payment_intent.* / transfer.* / account.updated / charge.dispute.*", "handler": "/webhooks/stripe", "verificationMethod": "stripe_signature", "action": "Idempotent reconciliation of charge/payout/account/dispute." } ],
+      "webhooksOut": [], "oauthScopes": [null],
+      "envVars": [
+        { "key": "STRIPE_SECRET_KEY", "description": "Stripe secret key", "secret": true, "source": "Stripe" },
+        { "key": "STRIPE_WEBHOOK_SECRET", "description": "Webhook signing secret", "secret": true, "source": "Stripe" },
+        { "key": "STRIPE_CONNECT_CLIENT_ID", "description": "Connect client id (Express)", "secret": false, "source": "Stripe" }
+      ],
+      "complianceImplications": ["pci", "kyc"],
+      "notes": "Connected accounts = contractors; platform-initiated delayed charges; KYC by Stripe. Not escrow."
+    },
+    {
+      "id": "supabase-realtime", "name": "Supabase (DB + Realtime)", "scope": "mvp", "type": "other", "direction": "both",
+      "webhooksIn": [], "webhooksOut": [], "oauthScopes": [null],
+      "envVars": [
+        { "key": "SUPABASE_URL", "description": "Supabase project URL", "secret": false, "source": "Supabase" },
+        { "key": "SUPABASE_SERVICE_KEY", "description": "Service role key", "secret": true, "source": "Supabase" },
+        { "key": "SUPABASE_ANON_KEY", "description": "Anon key (client realtime)", "secret": false, "source": "Supabase" }
+      ],
+      "complianceImplications": ["none"],
+      "notes": "Realtime scoped to messaging + bid arrival; participant-RLS-filtered."
+    },
+    {
+      "id": "board", "name": "Reely Board (consumer)", "scope": "mvp", "type": "other", "direction": "inbound",
+      "webhooksIn": [ { "event": "provider calls (listings/bids/contracts/time)", "handler": "/provider/*", "verificationMethod": "service_key", "action": "Resource-scoped create/read for the Board hire seam." } ],
+      "webhooksOut": [], "oauthScopes": [null],
+      "envVars": [ { "key": "CONTRACTOR_SERVICE_KEY", "description": "Shared secret Contractor validates on inbound Board provider calls", "secret": true, "source": "Reely platform secrets" } ],
+      "complianceImplications": ["none"],
+      "notes": "Contractor is the provider; Board is the consumer (currently deferred)."
+    },
+    {
+      "id": "email", "name": "Resend", "scope": "mvp", "type": "email", "direction": "outbound",
+      "webhooksIn": [], "webhooksOut": [ { "trigger": "hire-loop / payment / dispute / vetting", "destination": "Resend", "payload": "notification email" } ], "oauthScopes": [null],
+      "envVars": [ { "key": "RESEND_API_KEY", "description": "Resend key", "secret": true, "source": "Resend" } ],
+      "complianceImplications": ["gdpr"], "notes": null
+    },
+    {
+      "id": "r2", "name": "Cloudflare R2", "scope": "mvp", "type": "storage", "direction": "outbound",
+      "webhooksIn": [], "webhooksOut": [], "oauthScopes": [null],
+      "envVars": [ { "key": "R2_ACCESS_KEY_ID", "description": "R2 access key", "secret": true, "source": "Cloudflare R2" }, { "key": "R2_SECRET_ACCESS_KEY", "description": "R2 secret", "secret": true, "source": "Cloudflare R2" } ],
+      "complianceImplications": ["none"], "notes": "Profile/media assets."
+    }
+  ],
+
+  "businessModel": {
+    "revenueModel": "transaction_fee",
+    "tiers": [
+      { "id": "vetted", "label": "Vetted member (free)", "monthlyPriceCents": 0, "moduleAccess": ["contractor-identity", "profile", "marketplace", "job-feed", "contracts", "time", "payments", "messaging", "notifications"], "limits": {} }
+    ],
+    "designPartner": null,
+    "gtmWedge": "A trusted supply side wired directly into Reely-generated work via the Board hire seam.",
+    "notes": "Revenue is a platform take-rate on weekly-billed contract value through Stripe Connect — not subscription. Membership is vetted + free in v1. Take-rate % is flag-gated and parked. Recorded as a businessModel _schemaAdaptation."
+  },
+
+  "constraints": {
+    "compliance": ["gdpr", "pci", "kyc"],
+    "geographies": ["US", "EU"],
+    "dbRegion": "us-east-1",
+    "performanceSlas": { "apiResponseMs": null, "uptimePercent": null, "concurrentUsers": null },
+    "existingSystems": [
+      { "name": "Reely Board", "type": "AppForge node (consumer)", "integrationNotes": "Consumes contractor.listing/bid/contract/time_entry; bindings flip deferred->hard once Contractor is live." },
+      { "name": "Stripe Connect", "type": "payments", "integrationNotes": "Express connected accounts; platform-initiated delayed charges; KYC." },
+      { "name": "BrandRef token endpoint", "type": "theming", "integrationNotes": "Portfolio-shared design tokens." }
+    ],
+    "budgetCeiling": null,
+    "timelineNotes": "Financial correctness of the delayed-charge cycle is the top property (dedicated harness assertions). Vetting integrity second. Realtime is delay-tolerant. No AI engine."
+  },
+
+  "controller": {
+    "enabled": true,
+    "reportUrl": "https://contractor.reely.io/internal/controller/report",
+    "commandUrl": "https://contractor.reely.io/internal/controller/command",
+    "healthUrl": "https://contractor.reely.io/internal/controller/health",
+    "pushEventsEnabled": true,
+    "controllerWebhookUrl": null,
+    "pushEventTypes": ["application.submitted", "contractor.approved", "listing.posted", "contract.created", "payment.charged", "dispute.opened"],
+    "envVars": [
+      { "key": "CONTROLLER_API_KEY", "secret": true },
+      { "key": "CONTROLLER_WEBHOOK_SECRET", "secret": true, "requiredIf": "pushEventsEnabled" },
+      { "key": "CONTROLLER_WEBHOOK_URL", "secret": false, "requiredIf": "pushEventsEnabled" }
+    ]
+  },
+
+  "envVars": [
+    { "key": "DATABASE_URL", "description": "Supabase Postgres connection string", "secret": true, "source": "Supabase > Database", "requiredFor": "prisma/db", "example": "postgresql://..." },
+    { "key": "CLERK_SECRET_KEY", "description": "Clerk backend key (auth only)", "secret": true, "source": "Clerk dashboard", "requiredFor": "auth", "example": null },
+    { "key": "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "description": "Clerk publishable key", "secret": false, "source": "Clerk dashboard", "requiredFor": "auth", "example": "pk_..." },
+    { "key": "STRIPE_SECRET_KEY", "description": "Stripe secret key", "secret": true, "source": "Stripe", "requiredFor": "payments", "example": null },
+    { "key": "STRIPE_WEBHOOK_SECRET", "description": "Stripe webhook signing secret", "secret": true, "source": "Stripe", "requiredFor": "payments", "example": null },
+    { "key": "STRIPE_CONNECT_CLIENT_ID", "description": "Stripe Connect (Express) client id", "secret": false, "source": "Stripe", "requiredFor": "payments", "example": null },
+    { "key": "SUPABASE_URL", "description": "Supabase project URL", "secret": false, "source": "Supabase", "requiredFor": "realtime", "example": null },
+    { "key": "SUPABASE_SERVICE_KEY", "description": "Supabase service role key", "secret": true, "source": "Supabase", "requiredFor": "realtime/server", "example": null },
+    { "key": "SUPABASE_ANON_KEY", "description": "Supabase anon key (client realtime)", "secret": false, "source": "Supabase", "requiredFor": "realtime/client", "example": null },
+    { "key": "CONTRACTOR_SERVICE_KEY", "description": "Shared secret validated on inbound Board /provider/* calls", "secret": true, "source": "Reely platform secrets", "requiredFor": "provider surface", "example": null },
+    { "key": "RESEND_API_KEY", "description": "Resend email key", "secret": true, "source": "Resend", "requiredFor": "email", "example": null },
+    { "key": "UPSTASH_REDIS_REST_URL", "description": "Upstash Redis REST URL", "secret": true, "source": "Upstash", "requiredFor": "queue/cache", "example": null },
+    { "key": "UPSTASH_REDIS_REST_TOKEN", "description": "Upstash Redis REST token", "secret": true, "source": "Upstash", "requiredFor": "queue/cache", "example": null },
+    { "key": "R2_ACCESS_KEY_ID", "description": "Cloudflare R2 access key", "secret": true, "source": "Cloudflare R2", "requiredFor": "assets", "example": null },
+    { "key": "R2_SECRET_ACCESS_KEY", "description": "Cloudflare R2 secret", "secret": true, "source": "Cloudflare R2", "requiredFor": "assets", "example": null },
+    { "key": "SENTRY_DSN", "description": "Sentry DSN", "secret": false, "source": "Sentry", "requiredFor": "errors", "example": null },
+    { "key": "POSTHOG_KEY", "description": "PostHog project key", "secret": false, "source": "PostHog", "requiredFor": "analytics", "example": null },
+    { "key": "CONTROLLER_API_KEY", "description": "Controller report/command auth", "secret": true, "source": "Controller platform", "requiredFor": "controller", "example": null },
+    { "key": "CONTROLLER_WEBHOOK_SECRET", "description": "Controller event-push signing secret", "secret": true, "source": "Controller platform", "requiredFor": "controller push", "example": null },
+    { "key": "CONTROLLER_WEBHOOK_URL", "description": "Where this app pushes events", "secret": false, "source": "Controller platform", "requiredFor": "controller push", "example": null }
+  ],
+
+  "provisionerTargets": {
+    "supabase": {
+      "projectName": "reely-contractor",
+      "region": "us-east-1",
+      "tables": ["contractor_identity", "application", "invite", "contractor_profile", "skill_category", "listing", "bid", "contract", "contract_item", "time_entry", "message_thread", "message", "stripe_account", "billing_cycle", "charge", "payout", "dispute", "feature_flag", "app_event", "report_summary", "controller_command"],
+      "rlsPolicies": ["contractor_identity", "application", "invite", "contractor_profile", "skill_category", "listing", "bid", "contract", "contract_item", "time_entry", "message_thread", "message", "stripe_account", "billing_cycle", "charge", "payout", "dispute", "feature_flag", "app_event", "report_summary", "controller_command"],
+      "extensions": ["pgcrypto", "uuid-ossp", "pg_trgm"],
+      "realtime": ["listing", "bid", "message", "message_thread"],
+      "seedFiles": ["skill_category"]
+    },
+    "railway": {
+      "services": [
+        { "name": "contractor-api", "type": "api", "envVars": ["DATABASE_URL", "CLERK_SECRET_KEY", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_CONNECT_CLIENT_ID", "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "CONTRACTOR_SERVICE_KEY", "RESEND_API_KEY", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "SENTRY_DSN", "CONTROLLER_API_KEY", "CONTROLLER_WEBHOOK_SECRET", "CONTROLLER_WEBHOOK_URL"] },
+        { "name": "contractor-worker", "type": "worker", "envVars": ["DATABASE_URL", "STRIPE_SECRET_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_KEY", "RESEND_API_KEY", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "SENTRY_DSN"], "notes": "Hosts the weekly billing-cycle worker (cron 0 18 * * 0) + Stripe reconciliation." }
+      ]
+    },
+    "vercel": {
+      "projectName": "reely-contractor-web",
+      "envVars": ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "SUPABASE_URL", "SUPABASE_ANON_KEY", "POSTHOG_KEY", "SENTRY_DSN"]
+    },
+    "clerk": { "applicationName": "Reely Contractor", "multiTenant": false, "roles": ["member", "admin"] },
+    "stripe": { "mode": "connect-express", "platformAccount": "reely", "notes": "Connected accounts per contractor; destination/separate charges + transfers." },
+    "upstash": { "redisDatabase": "reely-contractor-redis" },
+    "r2": { "bucketName": "reely-contractor-assets" },
+    "sentry": { "projectName": "reely-contractor" },
+    "posthog": { "projectName": "reely-contractor" }
+  },
+
+  "scaffoldTargets": {
+    "monorepoRoot": true,
+    "packages": ["types", "contracts", "db", "ui", "config", "operations"],
+    "apps": ["web", "api", "worker", "extension"],
+    "prismaSchema": true,
+    "envExample": true,
+    "moduleStubs": ["contractor-identity", "profile", "marketplace", "job-feed", "contracts", "time", "payments", "messaging", "notifications", "contractor-admin"],
+    "webhookRoutes": ["clerk", "stripe"],
+    "providerRoutes": ["/provider/listings", "/provider/contracts", "/provider/time-entries"],
+    "controllerModule": true,
+    "nextjsRoutes": true,
+    "clerkMiddleware": true,
+    "realtimeChannel": true,
+    "billingCycleWorker": true
+  },
+
+  "portfolioContracts": {
+    "provides": [
+      { "id": "contractor.listing", "shape": "packages/contracts/listing", "version": "1.0.0", "consumers": [ { "appId": "board", "status": "deferred" } ], "notes": "Board posts + reads listings via /provider/listings." },
+      { "id": "contractor.bid", "shape": "packages/contracts/bid", "version": "1.0.0", "consumers": [ { "appId": "board", "status": "deferred" } ], "notes": "Board reads bids + stats." },
+      { "id": "contractor.contract", "shape": "packages/contracts/contract", "version": "1.0.0", "consumers": [ { "appId": "board", "status": "deferred" } ], "notes": "Board creates the Contract on hire; contract.id is the contract_ref Board grants against." },
+      { "id": "contractor.time_entry", "shape": "packages/contracts/time_entry", "version": "1.0.0", "consumers": [ { "appId": "board", "status": "deferred" } ], "notes": "Board reads/approves time for a contract." }
+    ],
+    "consumes": [],
+    "subscribes": [],
+    "realizes": [ { "id": "contractor_identity", "as": "verified profile on the base User", "notes": "Resolves the reserved seam." } ],
+    "_bindingNote": "Contractor PROVIDES the four marketplace shapes Board consumes (currently deferred on Board's side). It consumes nothing for v1 — clients arrive as opaque Clerk User ids. The contractor-person reaching INTO Board is governed by Board's access-control grant on contract_ref, not by this node. Cross-app ids (board_part_ref/board_ref) are references, never FKs. When Contractor is provisioned/live, Board's deferred consumes can flip hard and board.scaffold/registration proceeds on the Board side."
+  },
+
+  "_schemaAdaptations": [
+    { "id": "user-scoped-no-tenant", "area": "dataModel.multiTenancy", "default": "tenant_id_rls (or Clerk orgs)", "adaptedTo": "No tenant at all: user-scoped + participant-scoped RLS; tenantTable null; clerkOrgMapping false.", "reason": "Per Reely-Identity-Model.md, Contractor is user-scoped and owns contractor_identity. Two-party entities use participant scope." },
+    { "id": "transaction-fee-revenue", "area": "businessModel", "default": "subscription", "adaptedTo": "Platform take-rate on weekly-billed contract value via Stripe Connect; membership vetted + free.", "reason": "Contractor is the supply-side marketplace, not a tenant-SaaS app." },
+    { "id": "stripe-connect-delayed-charge", "area": "payments", "default": "none / direct charge", "adaptedTo": "Stripe Connect Express; platform-initiated DELAYED charge at weekly cycle close after a 7-day dispute window; payout transfer; not escrow.", "reason": "Trust + dispute handling without holding funds in escrow." },
+    { "id": "participant-scoped-access", "area": "access-model", "default": "owner-only user scope", "adaptedTo": "A participant scope for two-party rows (listing/bid/contract/message/cycle/charge/dispute) in addition to user scope, public, admin, and provider.", "reason": "Marketplace rows have two parties (client + contractor)." },
+    { "id": "cross-app-references", "area": "dataModel", "default": "FKs", "adaptedTo": "board_part_ref/board_ref are opaque external Board ids, never FKs/JOINs.", "reason": "App-boundary integrity; Board is a separate node." },
+    { "id": "realtime-supabase-scoped", "area": "stack.realtime", "default": "socket.io", "adaptedTo": "Supabase Realtime scoped to messaging + bid arrival; participant-RLS-filtered; delay-tolerant.", "reason": "Reuse RLS; the hire negotiation loop is interactive." },
+    { "id": "public-marketing-profile", "area": "publicAccess", "default": "no public surface", "adaptedTo": "One public surface: the contractor marketing profile (safe subset, is_public, link-only).", "reason": "The club interior is private, but the marketing face is shareable." },
+    { "id": "ctx-extensions", "area": "ModuleContext", "default": "db, events, queue, flags, error", "adaptedTo": "+stripe, +identity(requireVetted), +providerAuth, +realtime, +comms; no tree/tenant/scaffold/access.", "reason": "Payments + vetting + the inbound provider surface + scoped realtime." }
+  ],
+
+  "_forwardReservations": [
+    { "what": "social layer (post/follow/like/reply, social feed)", "kind": "feature", "reservedFor": "v2:social", "v1State": "not_built", "v2Activation": "additive", "notes": "Stable User ids make it additive." },
+    { "what": "general (non-hire) DMs", "kind": "feature", "reservedFor": "v2:social", "v1State": "hire-loop only", "v2Activation": "additive", "notes": null },
+    { "what": "native Expo mobile apps", "kind": "surface", "reservedFor": "v2:mobile", "v1State": "responsive web", "v2Activation": "additive", "notes": "Contractor is the portfolio's mobile candidate." },
+    { "what": "take-rate tiering", "kind": "business_model", "reservedFor": "v2:pricing", "v1State": "single flag-gated rate", "v2Activation": "additive", "notes": null },
+    { "what": "skill_category <-> Catalog taxonomy reconciliation", "kind": "cross_app", "reservedFor": "v2", "v1State": "independent curated vocabulary", "v2Activation": "additive", "notes": "Different domains; reconciliation deferred." }
+  ],
+
+  "openItems": [
+    { "id": "contractor-live-before-board-hard-binding", "section": "portfolioContracts", "description": "Board's consumes flip deferred -> hard only once Contractor is provisioned/live.", "blocksProvisioner": false },
+    { "id": "take-rate-pct", "section": "businessModel", "description": "Platform take-rate % + any tiering (flag-gated; not a build blocker).", "blocksProvisioner": false },
+    { "id": "skill-category-reconciliation", "section": "dataModel", "description": "Whether skill_category ever reconciles with Catalog taxonomy (parked).", "blocksProvisioner": false },
+    { "id": "social-phase-detail", "section": "modules", "description": "Feed ranking, follow graph, native-mobile specifics (staged).", "blocksProvisioner": false },
+    { "id": "video-call-tooling", "section": "modules", "description": "Out-of-system video-call tool for vetting (manual link in v1).", "blocksProvisioner": false }
+  ]
+}

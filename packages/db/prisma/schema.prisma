@@ -1,0 +1,379 @@
+// Contractor data model — generated from reely/06-Contractor/contractor.manifest.json (dataModel).
+// AUTHORITATIVE: the manifest. When code and manifest disagree, the manifest wins.
+//
+// Model posture (manifest dataModel.multiTenancy):
+//  - USER-SCOPED, NO TENANT. isolationStrategy = user_and_participant_rls, clerkOrgMapping = false.
+//    Clerk authenticates the User only; `contractor_identity` is a verified layer on the base User.
+//    `*_user_id` columns hold the Clerk User id (the User is never a local table). Clients appear only as
+//    opaque Clerk User ids on two-party entities (contract/listing/bid/thread) — never a Contractor row.
+//  - RLS keys on Postgres GUCs set per request by `withUser` (src/index.ts): `app.actor_user` (the Clerk
+//    user id), `app.actor` (role: contractor | applicant | platform_admin | system). Policy BODIES live in
+//    prisma/rls.sql (applied by apply-rls.ts); this schema defines tables/columns/enums/indexes only.
+//  - `board_part_ref` / `board_ref` / `listing_ref` are EXTERNAL Board entity ids — cross-app references,
+//    NEVER FKs/JOINs.
+//
+// SCOPE: this file carries the FOUNDATION tables (identity/application/invite/profile/skill_category +
+// app_event/feature_flag) and the SOCIAL tables (post/media/follow/reaction/comment/achievement/stats/dm),
+// authored social-club-first by lifting Stumble's proven social models (a recorded deviation from the
+// manifest's work-first v1). The WORK-LOOP tables (listing/bid/contract/time/billing/charge/payout/dispute)
+// land in Phase 2 directly from the manifest.
+
+generator client {
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "rhel-openssl-3.0.x"]
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgcrypto, pgTrgm(map: "pg_trgm")]
+}
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+enum ContractorStatus {
+  applicant
+  vetted
+  suspended
+}
+
+enum ApplicationSource {
+  apply
+  invite
+}
+
+enum ApplicationStatus {
+  submitted
+  in_review
+  approved
+  rejected
+}
+
+enum InviteStatus {
+  sent
+  accepted
+  expired
+}
+
+enum ActorType {
+  contractor
+  applicant
+  admin
+  client
+  system
+  controller
+}
+
+// Social
+enum PostKind {
+  update
+  milestone
+  achievement
+}
+
+enum PostVisibility {
+  public
+  followers
+}
+
+enum MediaType {
+  image
+  video_embed
+}
+
+enum ReactionType {
+  like
+  celebrate
+  insightful
+  fire
+  support
+}
+
+// ── Foundation ─────────────────────────────────────────────────────────────────
+/// The principal — a verified layer on the base Clerk User. The vetting gate.
+model ContractorIdentity {
+  id           String           @id @default(uuid()) @db.Uuid
+  clerkUserId  String           @unique @map("clerk_user_id")
+  status       ContractorStatus @default(applicant)
+  vettedAt     DateTime?        @map("vetted_at")
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  profile ContractorProfile?
+
+  @@index([status])
+  @@map("contractor_identity")
+}
+
+/// Vetting lifecycle. Applicant reads own; admin reads/writes all.
+model Application {
+  id          String            @id @default(uuid()) @db.Uuid
+  clerkUserId String            @map("clerk_user_id")
+  source      ApplicationSource
+  status      ApplicationStatus @default(submitted)
+  videoLink   String?           @map("video_link") // out-of-system call link (manual v1)
+  reviewerId  String?           @map("reviewer_id") // admin Clerk id
+  notes       String? // internal
+  decidedAt   DateTime?         @map("decided_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  @@index([clerkUserId])
+  @@index([status])
+  @@map("application")
+}
+
+/// Admin-managed invite system. Redemption updates status by code.
+model Invite {
+  id         String       @id @default(uuid()) @db.Uuid
+  email      String
+  code       String       @unique // redemption token
+  invitedBy  String       @map("invited_by") // admin Clerk id
+  status     InviteStatus @default(sent)
+  acceptedAt DateTime?    @map("accepted_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+
+  @@index([email])
+  @@map("invite")
+}
+
+/// Public marketing + professional profile (linktree-style). Public read of the safe subset when is_public.
+model ContractorProfile {
+  id                  String   @id @default(uuid()) @db.Uuid
+  contractorIdentityId String  @unique @map("contractor_identity_id") @db.Uuid
+  identity            ContractorIdentity @relation(fields: [contractorIdentityId], references: [id], onDelete: Cascade)
+  clerkUserId         String   @unique @map("clerk_user_id") // denormalized for user-scoped RLS + author joins
+  displayName         String   @map("display_name") // public
+  headline            String? // public
+  bio                 String?  @db.Text // public
+  categoryIds         Json     @default("[]") @map("category_ids") // skill_category ids; GIN; filter source; public labels
+  isPublic            Boolean  @default(false) @map("is_public") // gates the public surface
+  publicSlug          String?  @unique @map("public_slug") // shareable URL
+  avatarUrl           String?  @map("avatar_url") // R2; public
+  links               Json     @default("[]") // [{label,url}]; public
+  contractsCompleted  Int      @default(0) @map("contracts_completed") // system-driven rollup; public
+  hoursLogged         Decimal  @default(0) @map("hours_logged") @db.Decimal(12, 2) // system-driven rollup; public
+  onboardedAt         DateTime? @map("onboarded_at") // set when onboarding (categories + docs) completes
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("contractor_profile")
+}
+
+/// Curated skill vocabulary (admin-managed; NOT derived from Catalog taxonomy). The job↔contractor match key.
+model SkillCategory {
+  id     String  @id @default(uuid()) @db.Uuid
+  name   String  @unique
+  slug   String  @unique
+  active Boolean @default(true)
+  order  Int     @default(0)
+
+  @@map("skill_category")
+}
+
+/// Simple signed-doc acknowledgement captured during onboarding (e-sign integration deferred).
+model OnboardingDoc {
+  id          String   @id @default(uuid()) @db.Uuid
+  clerkUserId String   @map("clerk_user_id")
+  docKey      String   @map("doc_key") // e.g. "contractor-agreement", "w9"
+  version     String   @default("v1")
+  acceptedAt  DateTime @default(now()) @map("accepted_at")
+
+  @@unique([clerkUserId, docKey])
+  @@map("onboarding_doc")
+}
+
+// ── Social club (authored; lifted from Stumble's community/social-graph/gamification) ──────────────────
+/// A contractor post: text + optional media (image upload / video embed). Visible to followers (or public).
+model Post {
+  id            String         @id @default(uuid()) @db.Uuid
+  authorUserId  String         @map("author_user_id") // vetted contractor Clerk id
+  body          String         @db.Text
+  kind          PostKind       @default(update)
+  visibility    PostVisibility @default(followers)
+  // Provenance for system milestone/achievement auto-shares (opaque; never an FK).
+  sourceRef     String?        @map("source_ref")
+  reactionCount Int            @default(0) @map("reaction_count") // maintained aggregate
+  commentCount  Int            @default(0) @map("comment_count")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  media     PostMedia[]
+  comments  Comment[]
+  reactions Reaction[]
+
+  @@index([authorUserId])
+  @@index([createdAt])
+  @@map("post")
+}
+
+model PostMedia {
+  id        String    @id @default(uuid()) @db.Uuid
+  postId    String    @map("post_id") @db.Uuid
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  type      MediaType
+  url       String // R2 object url (image) or embed src (video)
+  embedHtml String?   @map("embed_html") // sanitized provider embed (video)
+  order     Int       @default(0)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([postId])
+  @@map("post_media")
+}
+
+/// Follow edge (user pair; no self-follow). Drives follower-scoped feed visibility.
+model Follow {
+  id             String   @id @default(uuid()) @db.Uuid
+  followerUserId String   @map("follower_user_id")
+  followeeUserId String   @map("followee_user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([followerUserId, followeeUserId])
+  @@index([followeeUserId])
+  @@map("follow")
+}
+
+/// One reaction per (user, post); changing type upserts, reacting same type clears (handled in app).
+model Reaction {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @map("user_id")
+  postId    String       @map("post_id") @db.Uuid
+  post      Post         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  type      ReactionType
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  @@unique([userId, postId])
+  @@index([postId])
+  @@map("reaction")
+}
+
+/// Threaded comment on a post (parent_id self-ref for replies).
+model Comment {
+  id        String    @id @default(uuid()) @db.Uuid
+  postId    String    @map("post_id") @db.Uuid
+  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String    @map("user_id")
+  parentId  String?   @map("parent_id") @db.Uuid
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("CommentReplies")
+  body      String    @db.Text
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([postId])
+  @@index([parentId])
+  @@map("comment")
+}
+
+/// Achievement definitions (onboarding + use-run). Awarded from events.
+model Achievement {
+  id          String  @id @default(uuid()) @db.Uuid
+  key         String  @unique
+  name        String
+  description String?
+  criteria    Json    @default("{}")
+  xp          Int     @default(0)
+  order       Int     @default(0)
+
+  awards AchievementAward[]
+
+  @@map("achievement")
+}
+
+/// Append-only award (idempotent per user+achievement).
+model AchievementAward {
+  id            String      @id @default(uuid()) @db.Uuid
+  userId        String      @map("user_id")
+  achievementId String      @map("achievement_id") @db.Uuid
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  awardedAt     DateTime    @default(now()) @map("awarded_at")
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@map("achievement_award")
+}
+
+/// Per-contractor gamification state (xp/level/streak), maintained by the achievements module.
+model ContractorStats {
+  clerkUserId   String   @id @map("clerk_user_id")
+  xp            Int      @default(0)
+  level         Int      @default(1)
+  streak        Int      @default(0)
+  lastActiveDay String?  @map("last_active_day") // YYYY-MM-DD
+  postCount     Int      @default(0) @map("post_count")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("contractor_stats")
+}
+
+/// General social DM thread (contractor ↔ contractor). 1:1; pair stored sorted (userA < userB).
+model DmThread {
+  id            String    @id @default(uuid()) @db.Uuid
+  userAUserId   String    @map("user_a_user_id")
+  userBUserId   String    @map("user_b_user_id")
+  lastMessageAt DateTime? @map("last_message_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  messages DmMessage[]
+
+  @@unique([userAUserId, userBUserId])
+  @@index([userAUserId])
+  @@index([userBUserId])
+  @@map("dm_thread")
+}
+
+model DmMessage {
+  id           String   @id @default(uuid()) @db.Uuid
+  threadId     String   @map("thread_id") @db.Uuid
+  thread       DmThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderUserId String   @map("sender_user_id")
+  body         String   @db.Text
+  readAt       DateTime? @map("read_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([threadId])
+  @@map("dm_message")
+}
+
+/// User-scoped notification (bell + email). Sole writer = the notifications module.
+model Notification {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") // recipient Clerk id
+  type        String
+  payload     Json      @default("{}")
+  readAt      DateTime? @map("read_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("notification")
+}
+
+// ── Platform furniture ─────────────────────────────────────────────────────────
+/// Immutable platform event log (user-scoped platform; no tenant). System-written via ctx.events.
+model AppEvent {
+  id         String    @id @default(uuid()) @db.Uuid
+  source     String
+  type       String
+  actorId    String    @map("actor_id")
+  actorType  ActorType @map("actor_type")
+  payload    Json      @default("{}")
+  occurredAt DateTime  @default(now()) @map("occurred_at")
+
+  @@index([type])
+  @@index([source])
+  @@index([occurredAt])
+  @@map("app_event")
+}
+
+/// BASELINE-SAAS feature flags. Global (user_id null) or per-user override.
+model FeatureFlag {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String
+  userId    String?  @map("user_id") // null = global; set = per-user override
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([key, userId])
+  @@index([key])
+  @@map("feature_flag")
+}
