@@ -1,12 +1,18 @@
 import Link from 'next/link'
-import { Rss, MessagesSquare, Bell, Briefcase, FileText, Wallet, Lock } from 'lucide-react'
+import { redirect } from 'next/navigation'
+import { Rss, MessagesSquare, Bell, Briefcase, FileText, Wallet, UserCircle, Lock } from 'lucide-react'
+import { apiQuery } from '@/lib/api'
 
 export const dynamic = 'force-dynamic'
 
-// The club dashboard. Middleware gates this to role `contractor`. The social feed lands next; the work-loop
-// surfaces (jobs/contracts/financial) are stubs until Phase 2.
+type Own = { profile: { onboarded: boolean } | null }
+
+// The club dashboard. Middleware gates this to role `contractor`; here we gate on onboarding completion
+// (vetted-but-not-onboarded → the setup flow). The social feed lands next; the work-loop surfaces
+// (jobs/contracts/financial) are stubs until Phase 2.
 const AREAS: { href: string; label: string; desc: string; Icon: typeof Rss; soon?: boolean }[] = [
   { href: '/contractor', label: 'Feed', desc: 'The club social feed — posts, milestones, follows.', Icon: Rss },
+  { href: '/contractor/profile', label: 'Profile', desc: 'Your public profile + links.', Icon: UserCircle },
   { href: '/contractor/messages', label: 'Messages', desc: 'DM fellow contractors.', Icon: MessagesSquare },
   { href: '/contractor/notifications', label: 'Notifications', desc: 'Bids, contracts, club activity.', Icon: Bell },
   { href: '/contractor/jobs', label: 'Find Work', desc: 'Job briefs matched to your skills.', Icon: Briefcase, soon: true },
@@ -14,7 +20,10 @@ const AREAS: { href: string; label: string; desc: string; Icon: typeof Rss; soon
   { href: '/contractor/financial', label: 'Financial', desc: 'Payouts, billing, time.', Icon: Wallet, soon: true },
 ]
 
-export default function ClubDashboard() {
+export default async function ClubDashboard() {
+  const own = await apiQuery<Own>('profile.getOwn').catch(() => ({ profile: null }) as Own)
+  if (!own.profile?.onboarded) redirect('/contractor/onboarding')
+
   return (
     <main className="mx-auto max-w-5xl px-6 py-8">
       <h1 className="font-display text-2xl font-bold tracking-tight">The Club</h1>
@@ -41,7 +50,7 @@ export default function ClubDashboard() {
       <div className="mt-8 rounded-xl border border-dashed border-border bg-muted/30 p-8 text-center">
         <Rss className="mx-auto mb-2 size-7 text-muted-foreground" />
         <p className="text-sm font-medium">Your social feed is being built.</p>
-        <p className="mt-1 text-sm text-muted-foreground">Posts, follows, reactions, and achievements land next. Set up your profile in the meantime.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Posts, follows, reactions, and achievements land next.</p>
       </div>
     </main>
   )

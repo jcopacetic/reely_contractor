@@ -1,0 +1,41 @@
+import { redirect } from 'next/navigation'
+import { apiQuery } from '@/lib/api'
+import { ProfileForm, type ProfileInitial } from '@/components/profile-form'
+
+export const dynamic = 'force-dynamic'
+
+type Own = {
+  profile:
+    | { displayName: string; headline: string | null; bio: string | null; links: { label: string; url: string }[]; categoryIds: string[]; isPublic: boolean; publicSlug: string | null; onboarded: boolean }
+    | null
+  requiredDocs: string[]
+  acceptedDocs: string[]
+}
+type Cat = { id: string; name: string; slug: string }
+
+export default async function OnboardingPage() {
+  const [own, categories] = await Promise.all([apiQuery<Own>('profile.getOwn'), apiQuery<Cat[]>('profile.listCategories')])
+  if (own.profile?.onboarded) redirect('/contractor')
+
+  const initial: ProfileInitial = own.profile
+    ? {
+        displayName: own.profile.displayName,
+        headline: own.profile.headline,
+        bio: own.profile.bio,
+        links: own.profile.links,
+        categoryIds: own.profile.categoryIds,
+        isPublic: own.profile.isPublic,
+        publicSlug: own.profile.publicSlug,
+      }
+    : null
+
+  return (
+    <main className="mx-auto max-w-2xl px-6 py-10">
+      <div className="mb-6">
+        <h1 className="font-display text-2xl font-bold tracking-tight">Set up your club profile</h1>
+        <p className="mt-1 text-sm text-muted-foreground">A few things before you&apos;re in: your public profile, the skills you work in, and the contractor agreement.</p>
+      </div>
+      <ProfileForm mode="onboarding" initial={initial} categories={categories} acceptedDocs={own.acceptedDocs} requiredDocs={own.requiredDocs} />
+    </main>
+  )
+}
