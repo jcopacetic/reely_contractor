@@ -10,7 +10,9 @@ const KEY = process.env.CONTRACTOR_SERVICE_KEY ?? ''
 
 async function actingHeaders(): Promise<Record<string, string>> {
   const { userId, sessionClaims } = await auth()
-  const role = (sessionClaims?.metadata as { role?: string } | undefined)?.role
+  const meta = sessionClaims?.metadata as { role?: string; contractor?: boolean } | undefined
+  // Admin (portfolio role) → admin; otherwise a vetted contractor (the dedicated flag) → contractor.
+  const role = meta?.role === 'admin' ? 'admin' : meta?.contractor === true ? 'contractor' : undefined
   return {
     'x-contractor-service-key': KEY,
     ...(userId ? { 'x-acting-user': userId } : {}),

@@ -1,12 +1,12 @@
 /**
  * contractor-identity store — the vetting state machine (applicant → vetted → suspended) and the invite
  * system. Foundational: every privileged write elsewhere checks `vettedProcedure` (DB-authoritative).
- * On approve/suspend we also mirror the role to Clerk (setContractorRole) so the nav + middleware gate
+ * On approve/suspend we also mirror the role to Clerk (setContractorFlag) so the nav + middleware gate
  * cheaply. Append-only events feed notifications + the admin queue.
  */
 import { randomUUID } from 'node:crypto'
 import { prisma, ensureIdentity, Prisma, type ActorType } from '@contractor/db'
-import { setContractorRole } from '../../clerk'
+import { setContractorFlag } from '../../clerk'
 
 const INVITE_EXPIRY_DAYS = 30
 
@@ -61,28 +61,28 @@ export async function review(adminId: string, applicationId: string) {
 export async function approve(adminId: string, targetUserId: string) {
   await prisma.contractorIdentity.update({ where: { clerkUserId: targetUserId }, data: { status: 'vetted', vettedAt: new Date() } })
   await prisma.application.updateMany({ where: { clerkUserId: targetUserId, status: { in: ['submitted', 'in_review'] } }, data: { status: 'approved', reviewerId: adminId, decidedAt: new Date() } })
-  await setContractorRole(targetUserId, true)
+  await setContractorFlag(targetUserId, true)
   await record('contractor.approved', adminId, 'admin', { userId: targetUserId })
   return { ok: true as const }
 }
 
 export async function reject(adminId: string, targetUserId: string) {
   await prisma.application.updateMany({ where: { clerkUserId: targetUserId, status: { in: ['submitted', 'in_review'] } }, data: { status: 'rejected', reviewerId: adminId, decidedAt: new Date() } })
-  await setContractorRole(targetUserId, false)
+  await setContractorFlag(targetUserId, false)
   await record('contractor.rejected', adminId, 'admin', { userId: targetUserId })
   return { ok: true as const }
 }
 
 export async function suspend(adminId: string, targetUserId: string) {
   await prisma.contractorIdentity.update({ where: { clerkUserId: targetUserId }, data: { status: 'suspended' } })
-  await setContractorRole(targetUserId, false)
+  await setContractorFlag(targetUserId, false)
   await record('contractor.suspended', adminId, 'admin', { userId: targetUserId })
   return { ok: true as const }
 }
 
 export async function reinstate(adminId: string, targetUserId: string) {
   await prisma.contractorIdentity.update({ where: { clerkUserId: targetUserId }, data: { status: 'vetted', vettedAt: new Date() } })
-  await setContractorRole(targetUserId, true)
+  await setContractorFlag(targetUserId, true)
   await record('contractor.approved', adminId, 'admin', { userId: targetUserId, reinstated: true })
   return { ok: true as const }
 }

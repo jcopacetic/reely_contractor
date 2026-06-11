@@ -23,10 +23,11 @@ const clerk = clerkMiddleware(async (auth, req) => {
   await auth.protect() // the whole /contractor area requires sign-in
   if (isApplicantArea(req)) return // apply + status are open to any signed-in user
 
-  // The club app itself: contractor role only.
+  // The club app itself: vetted contractors only. Gate on the dedicated `contractor` flag (set on approval),
+  // NOT the portfolio-wide `role` — a user can be an admin AND a contractor.
   const { sessionClaims } = await auth()
-  const role = (sessionClaims?.metadata as { role?: string } | undefined)?.role
-  if (role !== 'contractor') return NextResponse.redirect(new URL('/contractor/status', req.url))
+  const meta = sessionClaims?.metadata as { contractor?: boolean } | undefined
+  if (meta?.contractor !== true) return NextResponse.redirect(new URL('/contractor/status', req.url))
 })
 
 export default hasClerk ? clerk : () => NextResponse.next()
