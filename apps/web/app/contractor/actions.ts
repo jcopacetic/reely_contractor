@@ -157,3 +157,78 @@ export async function sendDmAction(threadId: string, body: string): Promise<{ id
     return { error: (e as Error).message }
   }
 }
+
+// ── Marketplace / work-loop ───────────────────────────────────────────────────────
+type BudgetType = 'hourly' | 'fixed'
+
+export async function createListingAction(input: {
+  title: string
+  description: string
+  categoryIds: string[]
+  budgetType: BudgetType
+  budgetAmount?: number | null
+}): Promise<{ listingId: string } | { error: string }> {
+  try {
+    return await apiMutate<{ listingId: string }>('marketplace.createListing', input)
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function closeListingAction(listingId: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    return await apiMutate('marketplace.closeListing', { listingId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function submitBidAction(
+  listingId: string,
+  bid: { rateType: BudgetType; amount: number; hoursEstimate?: number | null; message?: string | null },
+): Promise<{ bidId: string } | { error: string }> {
+  try {
+    return await apiMutate<{ bidId: string }>('marketplace.submitBid', { listingId, ...bid })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function withdrawBidAction(bidId: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    return await apiMutate('marketplace.withdrawBid', { bidId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+async function bidAction(proc: 'marketplace.counterBid' | 'marketplace.denyBid' | 'marketplace.acceptBid', bidId: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    return await apiMutate(proc, { bidId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function counterBidAction(bidId: string) {
+  return bidAction('marketplace.counterBid', bidId)
+}
+export async function denyBidAction(bidId: string) {
+  return bidAction('marketplace.denyBid', bidId)
+}
+export async function acceptBidAction(bidId: string) {
+  return bidAction('marketplace.acceptBid', bidId)
+}
+
+type ListingCard = {
+  id: string; ownerUserId: string; boardPartRef: string | null; title: string; description: string
+  categoryIds: string[]; budgetType: BudgetType; budgetAmount: number | null; status: string; createdAt: string; bidCount: number; isOwner: boolean
+}
+
+/** Re-query the job-feed with filters (client-driven browse). */
+export async function loadListingsAction(filters: { categoryIds?: string[]; budgetType?: BudgetType; before?: string }): Promise<ListingCard[]> {
+  try {
+    return (await apiQuery<ListingCard[]>('jobFeed.list', filters)) ?? []
+  } catch {
+    return []
+  }
+}

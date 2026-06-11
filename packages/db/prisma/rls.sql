@@ -287,3 +287,35 @@ drop policy if exists ff_self_read on feature_flag
 ;
 create policy ff_self_read on feature_flag for select using (user_id is null or user_id = current_setting('app.actor_user', true))
 ;
+
+-- listing: owner read/write; any vetted contractor may browse (select); admin/system all
+alter table listing enable row level security
+;
+drop policy if exists li_admin on listing
+;
+create policy li_admin on listing for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists li_owner on listing
+;
+create policy li_owner on listing for all using (owner_user_id = current_setting('app.actor_user', true)) with check (owner_user_id = current_setting('app.actor_user', true))
+;
+drop policy if exists li_browse on listing
+;
+create policy li_browse on listing for select using (current_setting('app.actor', true) = 'contractor')
+;
+
+-- bid: participant (bidder + listing owner) read; bidder writes own; admin/system all
+alter table bid enable row level security
+;
+drop policy if exists bi_admin on bid
+;
+create policy bi_admin on bid for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists bi_read on bid
+;
+create policy bi_read on bid for select using (bidder_user_id = current_setting('app.actor_user', true) or listing_id in (select id from listing where owner_user_id = current_setting('app.actor_user', true)))
+;
+drop policy if exists bi_bidder on bid
+;
+create policy bi_bidder on bid for all using (bidder_user_id = current_setting('app.actor_user', true)) with check (bidder_user_id = current_setting('app.actor_user', true))
+;

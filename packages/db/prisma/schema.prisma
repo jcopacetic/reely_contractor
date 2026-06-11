@@ -90,6 +90,26 @@ enum ReactionType {
   support
 }
 
+// Work-loop
+enum BudgetType {
+  hourly
+  fixed
+}
+
+enum ListingStatus {
+  open
+  closed
+  filled
+}
+
+enum BidStatus {
+  submitted
+  countered
+  denied
+  accepted
+  withdrawn
+}
+
 // ── Foundation ─────────────────────────────────────────────────────────────────
 /// The principal — a verified layer on the base Clerk User. The vetting gate.
 model ContractorIdentity {
@@ -346,6 +366,56 @@ model Notification {
   @@index([userId])
   @@index([createdAt])
   @@map("notification")
+}
+
+// ── Work-loop: marketplace (listing + bid) ──────────────────────────────────────
+/// A job listing — posted natively by a vetted contractor (subcontracting) or by Board on behalf of a
+/// client via the provider surface (carrying an opaque board_part_ref). The data authority behind the
+/// job-feed. Read by any vetted contractor (browse) + the owner; written by the owner or Board (provider).
+model Listing {
+  id           String        @id @default(uuid()) @db.Uuid
+  ownerUserId  String        @map("owner_user_id") // client Clerk id (Board member or native owner)
+  boardPartRef String?       @map("board_part_ref") // opaque Board part id when Board-originated; REFERENCE, never FK
+  title        String
+  description  String        @db.Text // the brief
+  categoryIds  String[]      @map("category_ids") // skill_category ids; text[] + GIN; the job↔contractor match key
+  budgetType   BudgetType    @map("budget_type")
+  budgetAmount Decimal?      @map("budget_amount") @db.Decimal(12, 2)
+  status       ListingStatus @default(open)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  closedAt     DateTime?     @map("closed_at")
+  deletedAt    DateTime?     @map("deleted_at") // soft-delete
+
+  bids Bid[]
+
+  @@index([ownerUserId])
+  @@index([boardPartRef])
+  @@index([status])
+  @@index([categoryIds], type: Gin)
+  @@map("listing")
+}
+
+/// A bid on a listing by a vetted contractor. Participant-scoped (bidder + listing owner). counterOf
+/// self-references the bid a counter responds to. Status transitions only (no hard delete).
+model Bid {
+  id            String     @id @default(uuid()) @db.Uuid
+  listingId     String     @map("listing_id") @db.Uuid
+  listing       Listing    @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  bidderUserId  String     @map("bidder_user_id") // contractor Clerk id; must be vetted at insert
+  rateType      BudgetType @map("rate_type")
+  amount        Decimal    @db.Decimal(12, 2)
+  hoursEstimate Decimal?   @map("hours_estimate") @db.Decimal(10, 2)
+  message       String?    @db.Text
+  status        BidStatus  @default(submitted)
+  counterOfId   String?    @map("counter_of_id") @db.Uuid
+  counterOf     Bid?       @relation("BidCounter", fields: [counterOfId], references: [id])
+  counters      Bid[]      @relation("BidCounter")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  @@index([listingId, status])
+  @@index([bidderUserId])
+  @@map("bid")
 }
 
 // ── Platform furniture ─────────────────────────────────────────────────────────

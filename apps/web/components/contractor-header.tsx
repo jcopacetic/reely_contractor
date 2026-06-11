@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { UserButton } from '@clerk/nextjs'
-import { Rss, UserCircle, MessagesSquare, Briefcase } from 'lucide-react'
+import { Rss, UserCircle, MessagesSquare, Briefcase, Gavel } from 'lucide-react'
 
 const hasClerk = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
 
@@ -10,7 +10,8 @@ const NAV: { key: string; href: string; label: string; Icon: typeof Rss; soon?: 
   { key: 'feed', href: '/contractor', label: 'Feed', Icon: Rss },
   { key: 'profile', href: '/contractor/profile', label: 'Profile', Icon: UserCircle },
   { key: 'messages', href: '/contractor/dms', label: 'Messages', Icon: MessagesSquare },
-  { key: 'jobs', href: '/contractor', label: 'Find Work', Icon: Briefcase, soon: true },
+  { key: 'jobs', href: '/contractor/work', label: 'Find Work', Icon: Briefcase },
+  { key: 'bids', href: '/contractor/bids', label: 'Bids', Icon: Gavel },
 ]
 
 /** The contractor club top nav. Real areas link; not-yet-built ones show a muted "soon" state. */
