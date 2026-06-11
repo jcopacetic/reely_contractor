@@ -247,6 +247,60 @@ export async function updateContractStatusAction(contractId: string, status: 'ac
   }
 }
 
+// ── Time tracking ───────────────────────────────────────────────────────────────────
+type TimeResult = { entryId?: string; ok?: true; durationSeconds?: number; error?: string }
+
+export async function startTimerAction(contractId: string, description?: string | null): Promise<TimeResult> {
+  try {
+    return await apiMutate<TimeResult>('time.start', { contractId, description: description ?? null })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function stopTimerAction(entryId: string): Promise<TimeResult> {
+  try {
+    return await apiMutate<TimeResult>('time.stop', { entryId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function cancelTimerAction(entryId: string): Promise<TimeResult> {
+  try {
+    return await apiMutate<TimeResult>('time.cancelRunning', { entryId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function addManualTimeAction(
+  contractId: string,
+  input: { startedAt: string; endedAt: string; description?: string | null },
+): Promise<TimeResult> {
+  try {
+    return await apiMutate<TimeResult>('time.manualEntry', { contractId, ...input })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function approveTimeAction(entryId: string): Promise<TimeResult> {
+  try {
+    return await apiMutate<TimeResult>('time.approve', { entryId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function unapproveTimeAction(entryId: string): Promise<TimeResult> {
+  try {
+    return await apiMutate<TimeResult>('time.unapprove', { entryId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 type ListingCard = {
   id: string; ownerUserId: string; boardPartRef: string | null; title: string; description: string
   categoryIds: string[]; budgetType: BudgetType; budgetAmount: number | null; status: string; createdAt: string; bidCount: number; isOwner: boolean

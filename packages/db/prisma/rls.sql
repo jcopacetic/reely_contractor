@@ -343,3 +343,25 @@ drop policy if exists cti_party on contract_item
 ;
 create policy cti_party on contract_item for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id))) with check (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
 ;
+
+-- time_entry: the contractor (owner) reads/writes own; the contract's client reads + approves (update only);
+-- admin/system all. Only approved entries bill (enforced at the app/cycle layer). Defense-in-depth: the api
+-- connects as the owner role so app-layer participant scoping in the store is primary.
+alter table time_entry enable row level security
+;
+drop policy if exists te_admin on time_entry
+;
+create policy te_admin on time_entry for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists te_owner on time_entry
+;
+create policy te_owner on time_entry for all using (contractor_user_id = current_setting('app.actor_user', true)) with check (contractor_user_id = current_setting('app.actor_user', true))
+;
+drop policy if exists te_client_read on time_entry
+;
+create policy te_client_read on time_entry for select using (contract_id in (select id from contract where client_user_id = current_setting('app.actor_user', true)))
+;
+drop policy if exists te_client_approve on time_entry
+;
+create policy te_client_approve on time_entry for update using (contract_id in (select id from contract where client_user_id = current_setting('app.actor_user', true))) with check (contract_id in (select id from contract where client_user_id = current_setting('app.actor_user', true)))
+;

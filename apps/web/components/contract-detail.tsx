@@ -108,9 +108,9 @@ export function ContractDetail({ contract }: { contract: Contract }) {
         {err && <p className="mt-2 text-sm text-destructive">{err}</p>}
       </section>
 
-      <section className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-center text-sm text-muted-foreground">
-        <Clock className="mx-auto mb-1 size-5 opacity-40" />
-        Time tracking, weekly billing &amp; payouts — coming soon.
+      <section className="rounded-xl border border-dashed border-border bg-muted/20 p-4 text-center text-xs text-muted-foreground">
+        <Clock className="mx-auto mb-1 size-4 opacity-40" />
+        Weekly billing &amp; payouts — coming soon. Approved time is what bills.
       </section>
     </div>
   )

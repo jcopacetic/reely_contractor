@@ -130,6 +130,12 @@ enum ContractItemStatus {
   void
 }
 
+enum TimeSource {
+  timer
+  extension
+  manual
+}
+
 // ── Foundation ─────────────────────────────────────────────────────────────────
 /// The principal — a verified layer on the base Clerk User. The vetting gate.
 model ContractorIdentity {
@@ -458,7 +464,8 @@ model Contract {
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
-  items ContractItem[]
+  items       ContractItem[]
+  timeEntries TimeEntry[]
 
   @@index([contractorUserId])
   @@index([clientUserId])
@@ -482,6 +489,31 @@ model ContractItem {
 
   @@index([contractId])
   @@map("contract_item")
+}
+
+/// A unit of tracked work against a contract — from the timer (start/stop), the browser extension, or a
+/// manual entry. Owner = the contract's contractor (the only writer). `ended_at` is null while a timer
+/// runs. ONLY `approved = true` entries are billable (the client approves; the payments cycle sums those).
+/// `billing_cycle_id` is set when a future payments cycle sweeps the entry (no FK yet — payments slice).
+model TimeEntry {
+  id               String     @id @default(uuid()) @db.Uuid
+  contractId       String     @map("contract_id") @db.Uuid
+  contract         Contract   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  contractorUserId String     @map("contractor_user_id") // owner (Clerk User id)
+  startedAt        DateTime   @map("started_at")
+  endedAt          DateTime?  @map("ended_at") // open while running
+  durationSeconds  Int        @default(0) @map("duration_seconds") // computed from started/ended on stop
+  description      String?    @db.Text
+  source           TimeSource @default(timer)
+  approved         Boolean    @default(false) // client approval; only approved time bills
+  approvedAt       DateTime?  @map("approved_at")
+  billingCycleId   String?    @map("billing_cycle_id") @db.Uuid // set when swept into a cycle (payments slice)
+  createdAt        DateTime   @default(now()) @map("created_at")
+
+  @@index([contractId])
+  @@index([contractorUserId])
+  @@index([contractId, approved])
+  @@map("time_entry")
 }
 
 // ── Platform furniture ─────────────────────────────────────────────────────────
