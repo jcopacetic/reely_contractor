@@ -5,6 +5,7 @@
  * with `post.reaction_count` maintained as a delta. Posts feed `app_event` (post.created) for achievements.
  */
 import { prisma, type ReactionType } from '@contractor/db'
+import { emit } from '../../events'
 
 export const REACTIONS = ['like', 'celebrate', 'insightful', 'fire', 'support'] as const
 
@@ -28,7 +29,7 @@ export async function createPost(userId: string, body: string, kind: 'update' | 
     update: { postCount: { increment: 1 } },
     create: { clerkUserId: userId, postCount: 1 },
   })
-  await prisma.appEvent.create({ data: { source: 'feed', type: 'post.created', actorId: userId, actorType: 'contractor', payload: { postId: post.id } } })
+  await emit('feed', 'post.created', userId, { postId: post.id })
   return { id: post.id }
 }
 
@@ -119,7 +120,7 @@ export type CommentView = {
 export async function addComment(userId: string, postId: string, body: string, parentId?: string): Promise<{ id: string }> {
   const c = await prisma.comment.create({ data: { postId, userId, body: body.trim(), parentId: parentId ?? null } })
   await prisma.post.update({ where: { id: postId }, data: { commentCount: { increment: 1 } } })
-  await prisma.appEvent.create({ data: { source: 'feed', type: 'comment.created', actorId: userId, actorType: 'contractor', payload: { postId, commentId: c.id } } })
+  await emit('feed', 'comment.created', userId, { postId, commentId: c.id })
   return { id: c.id }
 }
 

@@ -4,6 +4,7 @@
  * (contracts_completed, hours_logged) are system-written (Phase 2); never editable here.
  */
 import { prisma, Prisma } from '@contractor/db'
+import { emit } from '../../events'
 
 /** Docs an applicant must accept to finish onboarding (e-sign integration deferred — acknowledgement v1). */
 export const REQUIRED_DOCS = ['contractor-agreement'] as const
@@ -92,7 +93,7 @@ export async function update(
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') return { error: 'slug_taken' }
     throw e
   }
-  await prisma.appEvent.create({ data: { source: 'profile', type: 'profile.updated', actorId: clerkUserId, actorType: 'contractor', payload: { userId: clerkUserId } } })
+  await emit('profile', 'profile.updated', clerkUserId, { userId: clerkUserId })
   return { ok: true }
 }
 
@@ -135,7 +136,7 @@ export async function completeOnboarding(clerkUserId: string): Promise<{ ok: tru
   if (missing.length) return { error: 'incomplete', missing }
 
   await prisma.contractorProfile.update({ where: { clerkUserId }, data: { onboardedAt: new Date() } })
-  await prisma.appEvent.create({ data: { source: 'profile', type: 'profile.onboarded', actorId: clerkUserId, actorType: 'contractor', payload: { userId: clerkUserId } } })
+  await emit('profile', 'profile.onboarded', clerkUserId, { userId: clerkUserId })
   return { ok: true }
 }
 

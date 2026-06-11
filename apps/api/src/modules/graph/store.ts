@@ -5,6 +5,7 @@
  * distinct from the anonymous public `/pro/[slug]` safe-subset.
  */
 import { prisma } from '@contractor/db'
+import { emit } from '../../events'
 
 /** Toggle a follow edge. Returns the new state + the followee's follower count. */
 export async function toggleFollow(followerUserId: string, followeeUserId: string): Promise<{ following: boolean; followerCount: number } | { error: string }> {
@@ -14,12 +15,13 @@ export async function toggleFollow(followerUserId: string, followeeUserId: strin
     await prisma.follow.delete({ where: { id: existing.id } })
   } else {
     await prisma.follow.create({ data: { followerUserId, followeeUserId } })
-    await prisma.appEvent.create({ data: { source: 'graph', type: 'follow.created', actorId: followerUserId, actorType: 'contractor', payload: { followeeUserId } } })
+    await emit('graph', 'follow.created', followerUserId, { followeeUserId })
   }
   const followerCount = await prisma.follow.count({ where: { followeeUserId } })
   return { following: !existing, followerCount }
 }
 
+type Badge = { key: string; name: string; description: string | null; xp: number; awardedAt: string }
 type ClubProfile = {
   userId: string
   displayName: string
@@ -35,6 +37,10 @@ type ClubProfile = {
   followingCount: number
   isFollowing: boolean
   isSelf: boolean
+  level: number
+  xp: number
+  streak: number
+  achievements: Badge[]
 }
 
 /** The authenticated in-club profile of `targetUserId`, as seen by `viewerUserId`. Null if no profile. */
@@ -43,11 +49,17 @@ export async function getClubProfile(viewerUserId: string, targetUserId: string)
   if (!p) return null
   const ids = (p.categoryIds as unknown as string[]) ?? []
   const isSelf = viewerUserId === targetUserId
-  const [cats, followerCount, followingCount, follow] = await Promise.all([
+  const [cats, followerCount, followingCount, follow, stats, awards] = await Promise.all([
     ids.length ? prisma.skillCategory.findMany({ where: { id: { in: ids } }, select: { name: true } }) : Promise.resolve([] as { name: string }[]),
     prisma.follow.count({ where: { followeeUserId: targetUserId } }),
     prisma.follow.count({ where: { followerUserId: targetUserId } }),
     isSelf ? Promise.resolve(null) : prisma.follow.findUnique({ where: { followerUserId_followeeUserId: { followerUserId: viewerUserId, followeeUserId: targetUserId } }, select: { id: true } }),
+    prisma.contractorStats.findUnique({ where: { clerkUserId: targetUserId }, select: { xp: true, level: true, streak: true } }),
+    prisma.achievementAward.findMany({
+      where: { userId: targetUserId },
+      orderBy: { awardedAt: 'desc' },
+      select: { awardedAt: true, achievement: { select: { key: true, name: true, description: true, xp: true } } },
+    }),
   ])
   return {
     userId: targetUserId,
@@ -64,5 +76,9 @@ export async function getClubProfile(viewerUserId: string, targetUserId: string)
     followingCount,
     isFollowing: Boolean(follow),
     isSelf,
+    level: stats?.level ?? 1,
+    xp: stats?.xp ?? 0,
+    streak: stats?.streak ?? 0,
+    achievements: awards.map((a) => ({ key: a.achievement.key, name: a.achievement.name, description: a.achievement.description, xp: a.achievement.xp, awardedAt: a.awardedAt.toISOString() })),
   }
 }

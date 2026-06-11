@@ -7,6 +7,7 @@ import { Feed, type FeedPost } from '@/components/feed'
 
 export const dynamic = 'force-dynamic'
 
+type Badge = { key: string; name: string; description: string | null; xp: number; awardedAt: string }
 type ClubProfile = {
   userId: string
   displayName: string
@@ -22,6 +23,10 @@ type ClubProfile = {
   followingCount: number
   isFollowing: boolean
   isSelf: boolean
+  level: number
+  xp: number
+  streak: number
+  achievements: Badge[]
 }
 type Own = { profile: { displayName: string; avatarUrl: string | null } | null }
 
@@ -55,7 +60,11 @@ export default async function ClubMemberPage({ params }: { params: Promise<{ use
               <span className="grid size-16 shrink-0 place-items-center rounded-full bg-primary/10 font-display text-xl font-semibold text-primary">{initials(profile.displayName)}</span>
             )}
             <div className="min-w-0 flex-1">
-              <h1 className="font-display text-xl font-bold tracking-tight">{profile.displayName}</h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="font-display text-xl font-bold tracking-tight">{profile.displayName}</h1>
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary" title={`${profile.xp} XP`}>Lv {profile.level}</span>
+                {profile.streak > 1 && <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600" title="Day streak">🔥 {profile.streak}</span>}
+              </div>
               {profile.headline && <p className="text-sm text-muted-foreground">{profile.headline}</p>}
               <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                 <span><strong className="text-foreground">{profile.followerCount}</strong> followers</span>
@@ -98,6 +107,23 @@ export default async function ClubMemberPage({ params }: { params: Promise<{ use
             </a>
           )}
         </section>
+
+        {profile.achievements.length > 0 && (
+          <section className="mt-4 rounded-xl border border-border bg-card p-5">
+            <h2 className="mb-3 font-display text-sm font-semibold uppercase tracking-wide text-muted-foreground">Achievements</h2>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {profile.achievements.map((b) => (
+                <div key={b.key} className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-lg">🏆</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{b.name} <span className="font-normal text-muted-foreground">· +{b.xp} XP</span></p>
+                    {b.description && <p className="text-xs text-muted-foreground">{b.description}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <div className="mt-6">
           <h2 className="mb-3 font-display text-sm font-semibold uppercase tracking-wide text-muted-foreground">Posts</h2>

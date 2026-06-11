@@ -1,14 +1,17 @@
 import { Worker, type Job } from 'bullmq'
-import { CONTRACTOR_QUEUE, connection } from './connection'
+import { CONTRACTOR_QUEUE, JOBS, connection } from './connection'
+import { processAchievements } from './achievements'
 
 const SERVICE = 'contractor-worker'
 
 /**
- * Contractor background worker. Processes the contractor queue (notifications dispatch + the weekly
- * billing-cycle in Phase 2). Job handlers register as their modules land; an unknown job throws.
+ * Contractor background worker. Processes the contractor queue: achievements/XP fan-out now; notifications
+ * dispatch + the weekly billing-cycle in Phase 2. Handlers register as their modules land; an unknown job throws.
  */
 async function processJob(job: Job): Promise<void> {
   switch (job.name) {
+    case JOBS.achievementsProcess:
+      return processAchievements(job.data)
     default:
       throw new Error(`unknown job: ${job.name}`)
   }

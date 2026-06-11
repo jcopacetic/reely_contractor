@@ -7,6 +7,7 @@ export const CONTRACTOR_QUEUE = 'contractor' as const
 
 /** Job names handled by the contractor worker (filled in as modules land: notifications, billing-cycle, …). */
 export const JOBS = {
+  achievementsProcess: 'achievements.process',
   notifyDispatch: 'notifications.dispatch',
   billingCycle: 'payments.billing-cycle',
 } as const
