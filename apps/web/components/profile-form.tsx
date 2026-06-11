@@ -75,11 +75,33 @@ export function ProfileForm({
   }
 
   function togglePublic() {
-    setErr(null)
+    setErr(null); setMsg(null)
     start(async () => {
+      // Going public: persist the profile (incl. the handle) first, then flip is_public — one click.
+      if (!isPublic) {
+        if (!slug.trim()) {
+          setErr('Enter a public URL above first, then make your profile public.')
+          return
+        }
+        const saved = await saveProfileAction({
+          displayName: displayName.trim(),
+          headline: headline.trim() || null,
+          bio: bio.trim() || null,
+          links: links.filter((l) => l.label.trim() && l.url.trim()),
+          categoryIds: [...cats],
+          publicSlug: slug.trim(),
+        })
+        if (saved.error) {
+          setErr(saved.error === 'slug_taken' ? 'That URL is taken — pick another.' : saved.error === 'invalid_slug' ? 'URL: 3–40 lowercase letters, numbers, and dashes.' : saved.error)
+          return
+        }
+      }
       const r = await setPublicAction(!isPublic)
-      if (r.error) setErr(r.error === 'slug_required' ? 'Set a URL and hit Save first, then publish.' : r.error)
-      else setIsPublic(!isPublic)
+      if (r.error) setErr(r.error)
+      else {
+        setIsPublic(!isPublic)
+        setMsg(!isPublic ? 'Your profile is public.' : 'Your profile is private.')
+      }
     })
   }
 
