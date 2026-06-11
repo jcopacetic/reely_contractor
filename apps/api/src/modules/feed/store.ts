@@ -124,11 +124,16 @@ export async function addComment(userId: string, postId: string, body: string, p
   return { id: c.id }
 }
 
-/** All comments on a post (oldest-first, flat with parentId — the client threads them) + author profiles. */
-export async function listComments(postId: string): Promise<CommentView[]> {
+/**
+ * Comments on a post (oldest-first, flat with parentId — the client threads them) + author profiles.
+ * Bounded (take 100) with simple createdAt keyset pagination (`after` = last seen createdAt) so a
+ * runaway thread can't load an unbounded set into memory.
+ */
+export async function listComments(postId: string, limit = 100, after?: string): Promise<CommentView[]> {
   const comments = await prisma.comment.findMany({
-    where: { postId },
+    where: { postId, ...(after ? { createdAt: { gt: new Date(after) } } : {}) },
     orderBy: { createdAt: 'asc' },
+    take: Math.min(limit, 100),
     select: { id: true, userId: true, parentId: true, body: true, createdAt: true },
   })
   if (comments.length === 0) return []

@@ -20,10 +20,16 @@ async function actingHeaders(): Promise<Record<string, string>> {
   }
 }
 
-export async function apiQuery<T>(proc: string, input?: unknown): Promise<T> {
+/**
+ * Read a tRPC query. Defaults to `no-store` (authenticated/session reads must never be cached — they
+ * carry the acting user's headers and return per-user data). PUBLIC reads (e.g. `profile.getPublic`,
+ * which is anonymous + safe-subset) pass `{ revalidate }` to make the page ISR-cacheable instead.
+ */
+export async function apiQuery<T>(proc: string, input?: unknown, opts?: { revalidate?: number }): Promise<T> {
   const headers = await actingHeaders()
   const qs = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`
-  const res = await fetch(`${BASE}/trpc/${proc}${qs}`, { headers, cache: 'no-store' })
+  const cacheOpts = opts?.revalidate != null ? { next: { revalidate: opts.revalidate } } : { cache: 'no-store' as const }
+  const res = await fetch(`${BASE}/trpc/${proc}${qs}`, { headers, ...cacheOpts })
   if (!res.ok) throw new Error(`contractor ${proc} ${res.status}`)
   const json = (await res.json()) as { result?: { data?: T } }
   return json.result?.data as T

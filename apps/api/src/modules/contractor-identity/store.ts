@@ -87,11 +87,13 @@ export async function reinstate(adminId: string, targetUserId: string) {
   return { ok: true as const }
 }
 
-/** The admin vetting queue: applications awaiting a decision (newest first). */
-export async function vettingQueue() {
+/** The admin vetting queue: applications awaiting a decision (newest first). Bounded (take 100) so the
+ *  queue can't load an unbounded backlog into memory; older pending items page via `before` (createdAt). */
+export async function vettingQueue(limit = 100, before?: string) {
   return prisma.application.findMany({
-    where: { status: { in: ['submitted', 'in_review'] } },
+    where: { status: { in: ['submitted', 'in_review'] }, ...(before ? { createdAt: { lt: new Date(before) } } : {}) },
     orderBy: { createdAt: 'desc' },
+    take: Math.min(limit, 100),
     select: { id: true, clerkUserId: true, source: true, status: true, videoLink: true, createdAt: true },
   })
 }

@@ -20,6 +20,6 @@ export const feedRouter = router({
     .input(z.object({ postId: z.string().uuid(), body: z.string().min(1).max(2000), parentId: z.string().uuid().optional() }))
     .mutation(({ ctx, input }) => feed.addComment(ctx.clerkUserId, input.postId, input.body, input.parentId)),
   comments: vettedProcedure
-    .input(z.object({ postId: z.string().uuid() }))
-    .query(({ input }) => feed.listComments(input.postId)),
+    .input(z.object({ postId: z.string().uuid(), after: z.string().optional() }))
+    .query(({ input }) => feed.listComments(input.postId, 100, input.after)),
 })
