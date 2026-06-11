@@ -5,7 +5,7 @@ import { apiMutate } from '@/lib/api'
 /** Submit an application (any signed-in user). */
 export async function applyAction(): Promise<{ ok: true } | { error: string }> {
   try {
-    await apiMutate('identity.apply')
+    await apiMutate('identity.submit')
     return { ok: true }
   } catch (e) {
     return { error: (e as Error).message }

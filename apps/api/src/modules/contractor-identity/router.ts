@@ -4,7 +4,8 @@ import * as identity from './store'
 
 /** contractor-identity tRPC surface. apply/redeem/get-status = any signed-in user; the rest = platform_admin. */
 export const identityRouter = router({
-  apply: sessionProcedure.mutation(({ ctx }) => identity.apply(ctx.clerkUserId)),
+  // NB: 'apply' is a tRPC-reserved procedure name (collides with Function.prototype.apply) — use 'submit'.
+  submit: sessionProcedure.mutation(({ ctx }) => identity.apply(ctx.clerkUserId)),
   redeemInvite: sessionProcedure
     .input(z.object({ code: z.string().min(1) }))
     .mutation(({ ctx, input }) => identity.redeemInvite(ctx.clerkUserId, input.code)),
