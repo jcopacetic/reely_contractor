@@ -73,3 +73,24 @@ export async function completeOnboardingAction(): Promise<Result> {
     return { error: (e as Error).message }
   }
 }
+
+// ── Feed ─────────────────────────────────────────────────────────────────────────
+export async function createPostAction(body: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    await apiMutate('feed.createPost', { body })
+    return { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function reactAction(
+  postId: string,
+  type: string,
+): Promise<{ myReaction: string | null; reactionCount: number } | { error: string }> {
+  try {
+    return await apiMutate<{ myReaction: string | null; reactionCount: number }>('feed.react', { postId, type })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
