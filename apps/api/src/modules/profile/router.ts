@@ -20,7 +20,7 @@ export const profileRouter = router({
     )
     .mutation(({ ctx, input }) => profile.update(ctx.clerkUserId, input)),
   setPublic: vettedProcedure.input(z.object({ isPublic: z.boolean() })).mutation(({ ctx, input }) => profile.setPublic(ctx.clerkUserId, input.isPublic)),
-  setSlug: vettedProcedure.input(z.object({ slug: z.string().min(3).max(40) })).mutation(({ ctx, input }) => profile.setSlug(ctx.clerkUserId, input.slug)),
+  checkSlug: vettedProcedure.input(z.object({ slug: z.string().min(1) })).query(({ ctx, input }) => profile.checkSlug(ctx.clerkUserId, input.slug)),
   acceptDoc: vettedProcedure.input(z.object({ docKey: z.string().min(1), version: z.string().optional() })).mutation(({ ctx, input }) => profile.acceptDoc(ctx.clerkUserId, input.docKey, input.version)),
   completeOnboarding: vettedProcedure.mutation(({ ctx }) => profile.completeOnboarding(ctx.clerkUserId)),
   listCategories: vettedProcedure.query(() => profile.listCategories()),

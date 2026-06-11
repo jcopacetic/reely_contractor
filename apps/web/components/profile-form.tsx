@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Plus, Trash2, Check, ExternalLink, Globe } from 'lucide-react'
-import { saveProfileAction, setSlugAction, setPublicAction, acceptDocAction, completeOnboardingAction } from '@/app/contractor/actions'
+import { saveProfileAction, checkSlugAction, setPublicAction, acceptDocAction, completeOnboardingAction } from '@/app/contractor/actions'
 
 type Link = { label: string; url: string }
 type Category = { id: string; name: string; slug: string }
@@ -56,18 +56,21 @@ export function ProfileForm({
         bio: bio.trim() || null,
         links: links.filter((l) => l.label.trim() && l.url.trim()),
         categoryIds: [...cats],
+        publicSlug: slug.trim() || null,
       })
-      if (r.error) setErr(r.error)
+      if (r.error) setErr(r.error === 'slug_taken' ? 'That URL is taken — pick another.' : r.error === 'invalid_slug' ? 'URL: 3–40 lowercase letters, numbers, and dashes.' : r.error)
       else setMsg('Saved.')
     })
   }
 
-  function claimSlug() {
+  // Pure availability check — does NOT save or publish. The slug persists when you hit Save.
+  function checkSlug() {
     setErr(null); setMsg(null)
     start(async () => {
-      const r = await setSlugAction(slug.trim())
-      if (r.error) setErr(r.error === 'slug_taken' ? 'That URL is taken.' : r.error === 'invalid_slug' ? 'Use 3–40 lowercase letters, numbers, and dashes.' : r.error)
-      else setMsg('URL claimed.')
+      const r = await checkSlugAction(slug.trim())
+      if (r.error) setErr(r.error)
+      else if (!r.available) setErr(r.reason === 'taken' ? 'That URL is taken — pick another.' : 'URL: 3–40 lowercase letters, numbers, and dashes.')
+      else setMsg('That URL is available — it’s saved when you hit Save.')
     })
   }
 
@@ -75,7 +78,7 @@ export function ProfileForm({
     setErr(null)
     start(async () => {
       const r = await setPublicAction(!isPublic)
-      if (r.error) setErr(r.error === 'slug_required' ? 'Claim a public URL first.' : r.error)
+      if (r.error) setErr(r.error === 'slug_required' ? 'Set a URL and hit Save first, then publish.' : r.error)
       else setIsPublic(!isPublic)
     })
   }
@@ -146,7 +149,7 @@ export function ProfileForm({
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-muted-foreground">reely.io/pro/</span>
           <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="your-handle" className={`${inputCls} w-48`} />
-          <button type="button" onClick={claimSlug} disabled={pending || !slug.trim()} className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm hover:bg-muted disabled:opacity-60">Claim</button>
+          <button type="button" onClick={checkSlug} disabled={pending || !slug.trim()} className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm hover:bg-muted disabled:opacity-60">Check</button>
           {initial?.publicSlug && (
             <a href={`/pro/${initial.publicSlug}`} target="_blank" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">View <ExternalLink className="size-3" /></a>
           )}

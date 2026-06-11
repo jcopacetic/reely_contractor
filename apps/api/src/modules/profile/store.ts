@@ -43,7 +43,7 @@ export async function getOwn(clerkUserId: string) {
 /** Upsert the editable profile fields (basics + links + categories) in one save. Validates categories. */
 export async function update(
   clerkUserId: string,
-  patch: { displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; categoryIds?: string[] },
+  patch: { displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; categoryIds?: string[]; publicSlug?: string | null },
 ): Promise<{ ok: true } | { error: string }> {
   const idId = await identityId(clerkUserId)
   if (!idId) return { error: 'no_identity' }
@@ -54,6 +54,15 @@ export async function update(
     categoryIds = valid.map((v) => v.id)
   }
 
+  // Slug: optional. Empty/null clears it; a value must be valid (uniqueness enforced by the upsert below).
+  let publicSlug: string | null | undefined
+  if (patch.publicSlug !== undefined) {
+    const raw = (patch.publicSlug ?? '').trim().toLowerCase()
+    if (raw === '') publicSlug = null
+    else if (!SLUG_RE.test(raw) || raw.length < 3 || raw.length > 40) return { error: 'invalid_slug' }
+    else publicSlug = raw
+  }
+
   const data: Prisma.ContractorProfileUncheckedUpdateInput = {}
   if (patch.displayName !== undefined) data.displayName = patch.displayName
   if (patch.headline !== undefined) data.headline = patch.headline
@@ -61,21 +70,28 @@ export async function update(
   if (patch.avatarUrl !== undefined) data.avatarUrl = patch.avatarUrl
   if (patch.links !== undefined) data.links = patch.links as unknown as Prisma.InputJsonValue
   if (categoryIds !== undefined) data.categoryIds = categoryIds as unknown as Prisma.InputJsonValue
+  if (publicSlug !== undefined) data.publicSlug = publicSlug
 
-  await prisma.contractorProfile.upsert({
-    where: { clerkUserId },
-    update: data,
-    create: {
-      contractorIdentityId: idId,
-      clerkUserId,
-      displayName: patch.displayName ?? 'Contractor',
-      headline: patch.headline ?? null,
-      bio: patch.bio ?? null,
-      avatarUrl: patch.avatarUrl ?? null,
-      links: (patch.links ?? []) as unknown as Prisma.InputJsonValue,
-      categoryIds: (categoryIds ?? []) as unknown as Prisma.InputJsonValue,
-    },
-  })
+  try {
+    await prisma.contractorProfile.upsert({
+      where: { clerkUserId },
+      update: data,
+      create: {
+        contractorIdentityId: idId,
+        clerkUserId,
+        displayName: patch.displayName ?? 'Contractor',
+        headline: patch.headline ?? null,
+        bio: patch.bio ?? null,
+        avatarUrl: patch.avatarUrl ?? null,
+        links: (patch.links ?? []) as unknown as Prisma.InputJsonValue,
+        categoryIds: (categoryIds ?? []) as unknown as Prisma.InputJsonValue,
+        publicSlug: publicSlug ?? null,
+      },
+    })
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') return { error: 'slug_taken' }
+    throw e
+  }
   await prisma.appEvent.create({ data: { source: 'profile', type: 'profile.updated', actorId: clerkUserId, actorType: 'contractor', payload: { userId: clerkUserId } } })
   return { ok: true }
 }
@@ -89,16 +105,13 @@ export async function setPublic(clerkUserId: string, isPublic: boolean): Promise
   return { ok: true }
 }
 
-export async function setSlug(clerkUserId: string, slug: string): Promise<{ ok: true } | { error: string }> {
+/** Pure availability check for a public slug — no write. Powers the onboarding "Check" button; the slug is
+ *  actually persisted by `update` (on Save) and only goes live via `setPublic`. */
+export async function checkSlug(clerkUserId: string, slug: string): Promise<{ available: boolean; reason?: 'invalid' | 'taken' }> {
   const s = slug.trim().toLowerCase()
-  if (!SLUG_RE.test(s) || s.length < 3 || s.length > 40) return { error: 'invalid_slug' }
-  try {
-    await prisma.contractorProfile.update({ where: { clerkUserId }, data: { publicSlug: s } })
-    return { ok: true }
-  } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') return { error: 'slug_taken' }
-    throw e
-  }
+  if (!SLUG_RE.test(s) || s.length < 3 || s.length > 40) return { available: false, reason: 'invalid' }
+  const taken = await prisma.contractorProfile.findFirst({ where: { publicSlug: s, clerkUserId: { not: clerkUserId } }, select: { id: true } })
+  return taken ? { available: false, reason: 'taken' } : { available: true }
 }
 
 export async function acceptDoc(clerkUserId: string, docKey: string, version = 'v1'): Promise<{ ok: true }> {

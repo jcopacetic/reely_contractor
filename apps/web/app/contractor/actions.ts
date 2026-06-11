@@ -1,6 +1,6 @@
 'use server'
 
-import { apiMutate } from '@/lib/api'
+import { apiMutate, apiQuery } from '@/lib/api'
 
 /** Submit an application (any signed-in user). */
 export async function applyAction(): Promise<{ ok: true } | { error: string }> {
@@ -33,6 +33,7 @@ export async function saveProfileAction(input: {
   bio?: string | null
   links?: Link[]
   categoryIds?: string[]
+  publicSlug?: string | null
 }): Promise<Result> {
   try {
     return await apiMutate<Result>('profile.update', input)
@@ -41,11 +42,11 @@ export async function saveProfileAction(input: {
   }
 }
 
-export async function setSlugAction(slug: string): Promise<Result> {
+export async function checkSlugAction(slug: string): Promise<{ available: boolean; reason?: 'invalid' | 'taken'; error?: string }> {
   try {
-    return await apiMutate<Result>('profile.setSlug', { slug })
+    return await apiQuery<{ available: boolean; reason?: 'invalid' | 'taken' }>('profile.checkSlug', { slug })
   } catch (e) {
-    return { error: (e as Error).message }
+    return { available: false, error: (e as Error).message }
   }
 }
 
