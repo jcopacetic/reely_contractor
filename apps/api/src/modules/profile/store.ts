@@ -145,6 +145,18 @@ export async function listCategories() {
   return prisma.skillCategory.findMany({ where: { active: true }, orderBy: { order: 'asc' }, select: { id: true, name: true, slug: true } })
 }
 
+/** PUBLIC: every public profile's slug + lastmod, for the /pro sitemap. Only is_public profiles with a slug.
+ *  Bounded; the safe subset (no PII beyond the already-public slug + an opaque timestamp). */
+export async function listPublicSlugs(): Promise<Array<{ slug: string; updatedAt: string }>> {
+  const rows = await prisma.contractorProfile.findMany({
+    where: { isPublic: true, publicSlug: { not: null } },
+    select: { publicSlug: true, updatedAt: true },
+    orderBy: { updatedAt: 'desc' },
+    take: 5000,
+  })
+  return rows.map((r) => ({ slug: r.publicSlug as string, updatedAt: r.updatedAt.toISOString() }))
+}
+
 /** PUBLIC read: the safe subset only, only when is_public. A non-public/unknown slug returns null (→ 404). */
 export async function getPublic(slug: string) {
   const p = await prisma.contractorProfile.findFirst({

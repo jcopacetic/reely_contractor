@@ -25,4 +25,5 @@ export const profileRouter = router({
   completeOnboarding: vettedProcedure.mutation(({ ctx }) => profile.completeOnboarding(ctx.clerkUserId)),
   listCategories: vettedProcedure.query(() => profile.listCategories()),
   getPublic: publicProcedure.input(z.object({ slug: z.string().min(1) })).query(({ input }) => profile.getPublic(input.slug)),
+  publicSitemap: publicProcedure.query(() => profile.listPublicSlugs()),
 })
