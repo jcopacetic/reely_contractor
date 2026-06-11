@@ -32,25 +32,20 @@ export async function createPost(userId: string, body: string, kind: 'update' | 
   return { id: post.id }
 }
 
-/** Newest-first club feed with author profile + the caller's own reaction per post. Keyset on createdAt. */
-export async function listFeed(userId: string, limit = 30, before?: string): Promise<FeedPost[]> {
-  const posts = await prisma.post.findMany({
-    where: before ? { createdAt: { lt: new Date(before) } } : {},
-    orderBy: { createdAt: 'desc' },
-    take: Math.min(limit, 50),
-    select: { id: true, authorUserId: true, body: true, kind: true, reactionCount: true, commentCount: true, createdAt: true },
-  })
-  if (posts.length === 0) return []
+type RawPost = { id: string; authorUserId: string; body: string; kind: string; reactionCount: number; commentCount: number; createdAt: Date }
+const POST_SELECT = { id: true, authorUserId: true, body: true, kind: true, reactionCount: true, commentCount: true, createdAt: true } as const
 
+/** Resolve author profiles + the viewer's own reactions for a batch of raw posts → FeedPost[]. */
+async function hydrate(viewerUserId: string, posts: RawPost[]): Promise<FeedPost[]> {
+  if (posts.length === 0) return []
   const authorIds = [...new Set(posts.map((p) => p.authorUserId))]
   const postIds = posts.map((p) => p.id)
   const [profiles, mine] = await Promise.all([
     prisma.contractorProfile.findMany({ where: { clerkUserId: { in: authorIds } }, select: { clerkUserId: true, displayName: true, avatarUrl: true, publicSlug: true } }),
-    prisma.reaction.findMany({ where: { userId, postId: { in: postIds } }, select: { postId: true, type: true } }),
+    prisma.reaction.findMany({ where: { userId: viewerUserId, postId: { in: postIds } }, select: { postId: true, type: true } }),
   ])
   const byUser = new Map(profiles.map((p) => [p.clerkUserId, p]))
   const myByPost = new Map(mine.map((r) => [r.postId, r.type]))
-
   return posts.map((p) => {
     const pr = byUser.get(p.authorUserId)
     return {
@@ -64,6 +59,28 @@ export async function listFeed(userId: string, limit = 30, before?: string): Pro
       myReaction: myByPost.get(p.id) ?? null,
     }
   })
+}
+
+/** Newest-first club feed (keyset on createdAt) with author profile + the caller's reaction per post. */
+export async function listFeed(userId: string, limit = 30, before?: string): Promise<FeedPost[]> {
+  const posts = await prisma.post.findMany({
+    where: before ? { createdAt: { lt: new Date(before) } } : {},
+    orderBy: { createdAt: 'desc' },
+    take: Math.min(limit, 50),
+    select: POST_SELECT,
+  })
+  return hydrate(userId, posts)
+}
+
+/** A single contractor's posts (their profile timeline), newest-first. */
+export async function listByAuthor(userId: string, authorUserId: string, limit = 30, before?: string): Promise<FeedPost[]> {
+  const posts = await prisma.post.findMany({
+    where: { authorUserId, ...(before ? { createdAt: { lt: new Date(before) } } : {}) },
+    orderBy: { createdAt: 'desc' },
+    take: Math.min(limit, 50),
+    select: POST_SELECT,
+  })
+  return hydrate(userId, posts)
 }
 
 /** Toggle/switch a reaction on a post (one per user per post). Maintains post.reaction_count. */

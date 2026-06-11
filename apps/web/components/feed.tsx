@@ -38,13 +38,13 @@ function timeAgo(iso: string): string {
   return d < 7 ? `${d}d` : new Date(iso).toLocaleDateString()
 }
 
-export function Feed({ initial, me }: { initial: FeedPost[]; me: { displayName: string; avatarUrl: string | null } }) {
+export function Feed({ initial, me, composer = true, emptyText }: { initial: FeedPost[]; me: Me; composer?: boolean; emptyText?: string }) {
   return (
     <div className="space-y-5">
-      <Composer me={me} />
+      {composer && <Composer me={me} />}
       {initial.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border bg-muted/30 p-10 text-center text-sm text-muted-foreground">
-          Quiet in here. Be the first to post something to the club.
+          {emptyText ?? 'Quiet in here. Be the first to post something to the club.'}
         </div>
       ) : (
         <div className="space-y-3">
@@ -147,11 +147,7 @@ function PostCard({ post, me }: { post: FeedPost; me: Me }) {
       <div className="flex items-center gap-2.5">
         <Avatar name={post.author.displayName} url={post.author.avatarUrl} />
         <div className="min-w-0">
-          {post.author.publicSlug ? (
-            <a href={`/pro/${post.author.publicSlug}`} className="font-display text-sm font-semibold hover:text-primary">{post.author.displayName}</a>
-          ) : (
-            <span className="font-display text-sm font-semibold">{post.author.displayName}</span>
-          )}
+          <a href={`/contractor/u/${post.author.userId}`} className="font-display text-sm font-semibold hover:text-primary">{post.author.displayName}</a>
           <span className="ml-1.5 text-xs text-muted-foreground">· {timeAgo(post.createdAt)}</span>
         </div>
         {post.kind !== 'update' && (
@@ -247,11 +243,7 @@ function CommentRow({ c, onReply }: { c: CommentView; onReply?: () => void }) {
       <div className="grid size-7 shrink-0 place-items-center rounded-full bg-muted text-xs font-bold text-muted-foreground">{c.author.displayName.charAt(0).toUpperCase()}</div>
       <div className="min-w-0 grow rounded-xl bg-muted/50 px-3 py-2">
         <div className="flex items-center gap-1.5">
-          {c.author.publicSlug ? (
-            <a href={`/pro/${c.author.publicSlug}`} className="text-xs font-semibold hover:text-primary">{c.author.displayName}</a>
-          ) : (
-            <span className="text-xs font-semibold">{c.author.displayName}</span>
-          )}
+          <a href={`/contractor/u/${c.author.userId}`} className="text-xs font-semibold hover:text-primary">{c.author.displayName}</a>
           <span className="text-[10px] text-muted-foreground">· {timeAgo(c.createdAt)}</span>
         </div>
         <p className="mt-0.5 whitespace-pre-line text-sm">{c.body}</p>

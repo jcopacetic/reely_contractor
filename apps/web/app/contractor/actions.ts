@@ -119,3 +119,12 @@ export async function addCommentAction(postId: string, body: string, parentId?: 
     return { error: (e as Error).message }
   }
 }
+
+// ── Graph (follows) ──────────────────────────────────────────────────────────────
+export async function toggleFollowAction(userId: string): Promise<{ following: boolean; followerCount: number } | { error: string }> {
+  try {
+    return await apiMutate<{ following: boolean; followerCount: number }>('graph.toggleFollow', { userId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}

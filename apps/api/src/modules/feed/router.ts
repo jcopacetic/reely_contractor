@@ -10,6 +10,9 @@ export const feedRouter = router({
   list: vettedProcedure
     .input(z.object({ before: z.string().optional() }).optional())
     .query(({ ctx, input }) => feed.listFeed(ctx.clerkUserId, 30, input?.before)),
+  byAuthor: vettedProcedure
+    .input(z.object({ userId: z.string().min(1), before: z.string().optional() }))
+    .query(({ ctx, input }) => feed.listByAuthor(ctx.clerkUserId, input.userId, 30, input.before)),
   react: vettedProcedure
     .input(z.object({ postId: z.string().uuid(), type: z.enum(['like', 'celebrate', 'insightful', 'fire', 'support']) }))
     .mutation(({ ctx, input }) => feed.react(ctx.clerkUserId, input.postId, input.type)),
