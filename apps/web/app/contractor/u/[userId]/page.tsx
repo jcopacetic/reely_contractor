@@ -3,6 +3,7 @@ import { ExternalLink } from 'lucide-react'
 import { apiQuery } from '@/lib/api'
 import { ContractorHeader } from '@/components/contractor-header'
 import { FollowButton } from '@/components/follow-button'
+import { MessageButton } from '@/components/message-button'
 import { Feed, type FeedPost } from '@/components/feed'
 
 export const dynamic = 'force-dynamic'
@@ -72,11 +73,14 @@ export default async function ClubMemberPage({ params }: { params: Promise<{ use
                 {profile.contractsCompleted > 0 && <span><strong className="text-foreground">{profile.contractsCompleted}</strong> contracts</span>}
               </div>
             </div>
-            <div className="shrink-0">
+            <div className="flex shrink-0 items-center gap-2">
               {profile.isSelf ? (
                 <a href="/contractor/profile" className="inline-flex h-9 items-center rounded-md border border-border px-4 text-sm font-medium hover:bg-muted">Edit profile</a>
               ) : (
-                <FollowButton userId={profile.userId} initialFollowing={profile.isFollowing} initialFollowerCount={profile.followerCount} />
+                <>
+                  <MessageButton userId={profile.userId} />
+                  <FollowButton userId={profile.userId} initialFollowing={profile.isFollowing} initialFollowerCount={profile.followerCount} />
+                </>
               )}
             </div>
           </div>

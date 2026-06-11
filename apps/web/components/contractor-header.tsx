@@ -9,7 +9,7 @@ const hasClerk = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
 const NAV: { key: string; href: string; label: string; Icon: typeof Rss; soon?: boolean }[] = [
   { key: 'feed', href: '/contractor', label: 'Feed', Icon: Rss },
   { key: 'profile', href: '/contractor/profile', label: 'Profile', Icon: UserCircle },
-  { key: 'messages', href: '/contractor', label: 'Messages', Icon: MessagesSquare, soon: true },
+  { key: 'messages', href: '/contractor/dms', label: 'Messages', Icon: MessagesSquare },
   { key: 'jobs', href: '/contractor', label: 'Find Work', Icon: Briefcase, soon: true },
 ]
 

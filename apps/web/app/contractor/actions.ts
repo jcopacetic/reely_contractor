@@ -128,3 +128,32 @@ export async function toggleFollowAction(userId: string): Promise<{ following: b
     return { error: (e as Error).message }
   }
 }
+
+// ── DMs ────────────────────────────────────────────────────────────────────────
+type Participant = { userId: string; displayName: string; avatarUrl: string | null }
+type DmMessage = { id: string; body: string; fromMe: boolean; senderUserId: string; createdAt: string }
+
+/** Find or create the 1:1 thread with a contractor (used by the "Message" button on profiles). */
+export async function openThreadAction(userId: string): Promise<{ threadId: string; other: Participant } | { error: string }> {
+  try {
+    return await apiMutate<{ threadId: string; other: Participant }>('dm.open', { userId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function loadMessagesAction(threadId: string, before?: string): Promise<{ messages: DmMessage[]; other: Participant } | { error: string }> {
+  try {
+    return await apiQuery<{ messages: DmMessage[]; other: Participant }>('dm.messages', { threadId, ...(before ? { before } : {}) })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function sendDmAction(threadId: string, body: string): Promise<{ id: string } | { error: string }> {
+  try {
+    return await apiMutate<{ id: string }>('dm.send', { threadId, body })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
