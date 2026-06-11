@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 
 /**
  * The Contractor access gate (the owner's hard requirement):
- *  - /c/[slug]        → PUBLIC marketing profile (no auth).
+ *  - /pro/[slug]      → PUBLIC marketing profile (no auth). (/c/* belongs to stumble on the apex.)
  *  - /contractor/apply, /contractor/status → any signed-in user (the applicant flow).
  *  - /contractor/**   → the club app: Clerk role `contractor` ONLY (mirrored on vetting approval).
  *    A signed-in non-contractor is redirected to /contractor/status (their application state / apply CTA).
@@ -12,7 +12,7 @@ import { NextResponse } from 'next/server'
 const hasClerk =
   Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) && Boolean(process.env.CLERK_SECRET_KEY)
 
-const isPublicProfile = createRouteMatcher(['/c/(.*)'])
+const isPublicProfile = createRouteMatcher(['/pro/(.*)'])
 const isContractorApp = createRouteMatcher(['/contractor(.*)'])
 const isApplicantArea = createRouteMatcher(['/contractor/apply', '/contractor/status'])
 

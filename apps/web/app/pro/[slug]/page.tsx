@@ -15,7 +15,7 @@ type PublicProfile = {
   hoursLogged: number
 } | null
 
-/** Public marketing profile (linktree-style), reely.io/c/[slug]. Safe-subset only, and only when is_public. */
+/** Public marketing profile (linktree-style), reely.io/pro/[slug]. Safe-subset only, and only when is_public. */
 export default async function PublicProfilePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
   const p = await apiQuery<PublicProfile>('profile.getPublic', { slug }).catch(() => null)

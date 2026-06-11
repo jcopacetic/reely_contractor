@@ -142,13 +142,13 @@ export function ProfileForm({
         </div>
       </Section>
 
-      <Section title="Public URL" hint="Your shareable profile at reely.io/c/your-handle.">
+      <Section title="Public URL" hint="Your shareable profile at reely.io/pro/your-handle.">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground">reely.io/c/</span>
+          <span className="text-sm text-muted-foreground">reely.io/pro/</span>
           <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="your-handle" className={`${inputCls} w-48`} />
           <button type="button" onClick={claimSlug} disabled={pending || !slug.trim()} className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm hover:bg-muted disabled:opacity-60">Claim</button>
           {initial?.publicSlug && (
-            <a href={`/c/${initial.publicSlug}`} target="_blank" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">View <ExternalLink className="size-3" /></a>
+            <a href={`/pro/${initial.publicSlug}`} target="_blank" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">View <ExternalLink className="size-3" /></a>
           )}
         </div>
         <button type="button" onClick={togglePublic} disabled={pending} className={`mt-3 inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition ${isPublic ? 'bg-emerald-500/15 text-emerald-700' : 'border border-border text-muted-foreground hover:bg-muted'}`}>
