@@ -228,6 +228,12 @@ export async function providerCreateListing(input: CreateListingInput & { ownerU
   return { listingRef: listingId }
 }
 
+/** The active skill-category vocab — exposed to Board (provider) so the hire panel can tag a job for
+ *  feed matching. Public-safe (id + name + slug only). */
+export async function providerSkillCategories(): Promise<Array<{ id: string; name: string; slug: string }>> {
+  return prisma.skillCategory.findMany({ where: { active: true }, orderBy: { order: 'asc' }, select: { id: true, name: true, slug: true } })
+}
+
 export type BidStats = { count: number; avgAmount: number | null; avgHours: number | null }
 
 /** Bids for a Board-originated listing + aggregate stats. Scoped: only listings carrying a boardPartRef. */

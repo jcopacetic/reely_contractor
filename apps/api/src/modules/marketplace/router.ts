@@ -29,6 +29,8 @@ const providerRouter = router({
   listBids: serviceProcedure.input(z.object({ listingRef: z.string().uuid() })).query(({ input }) => mp.providerListBids(input.listingRef)),
   counterBid: serviceProcedure.input(z.object({ bidRef: z.string().uuid() })).mutation(({ input }) => mp.counterBid(null, input.bidRef)),
   denyBid: serviceProcedure.input(z.object({ bidRef: z.string().uuid() })).mutation(({ input }) => mp.denyBid(null, input.bidRef)),
+  acceptBid: serviceProcedure.input(z.object({ bidRef: z.string().uuid() })).mutation(({ input }) => mp.acceptBid(null, input.bidRef)),
+  skillCategories: serviceProcedure.query(() => mp.providerSkillCategories()),
 })
 
 /** marketplace tRPC surface — native listing/bid ops (vetted contractors) + the Board provider sub-router. */
