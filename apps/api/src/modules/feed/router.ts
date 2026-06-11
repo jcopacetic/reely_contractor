@@ -13,4 +13,10 @@ export const feedRouter = router({
   react: vettedProcedure
     .input(z.object({ postId: z.string().uuid(), type: z.enum(['like', 'celebrate', 'insightful', 'fire', 'support']) }))
     .mutation(({ ctx, input }) => feed.react(ctx.clerkUserId, input.postId, input.type)),
+  addComment: vettedProcedure
+    .input(z.object({ postId: z.string().uuid(), body: z.string().min(1).max(2000), parentId: z.string().uuid().optional() }))
+    .mutation(({ ctx, input }) => feed.addComment(ctx.clerkUserId, input.postId, input.body, input.parentId)),
+  comments: vettedProcedure
+    .input(z.object({ postId: z.string().uuid() }))
+    .query(({ input }) => feed.listComments(input.postId)),
 })

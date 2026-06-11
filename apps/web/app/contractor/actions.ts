@@ -94,3 +94,28 @@ export async function reactAction(
     return { error: (e as Error).message }
   }
 }
+
+type CommentView = {
+  id: string
+  parentId: string | null
+  author: { userId: string; displayName: string; avatarUrl: string | null; publicSlug: string | null }
+  body: string
+  createdAt: string
+}
+
+export async function loadCommentsAction(postId: string): Promise<CommentView[]> {
+  try {
+    return (await apiQuery<CommentView[]>('feed.comments', { postId })) ?? []
+  } catch {
+    return []
+  }
+}
+
+export async function addCommentAction(postId: string, body: string, parentId?: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    await apiMutate('feed.addComment', { postId, body, ...(parentId ? { parentId } : {}) })
+    return { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}

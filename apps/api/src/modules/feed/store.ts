@@ -88,3 +88,43 @@ export async function react(userId: string, postId: string, type: ReactionType):
     : await prisma.post.update({ where: { id: postId }, data: { reactionCount: { increment: delta } }, select: { reactionCount: true } })
   return { myReaction, reactionCount: post?.reactionCount ?? 0 }
 }
+
+// ── Comments (threaded via parent_id) ──────────────────────────────────────────
+export type CommentView = {
+  id: string
+  parentId: string | null
+  author: Author
+  body: string
+  createdAt: string
+}
+
+/** Add a comment (or a reply, via parentId) to a post; maintain post.comment_count; emit comment.created. */
+export async function addComment(userId: string, postId: string, body: string, parentId?: string): Promise<{ id: string }> {
+  const c = await prisma.comment.create({ data: { postId, userId, body: body.trim(), parentId: parentId ?? null } })
+  await prisma.post.update({ where: { id: postId }, data: { commentCount: { increment: 1 } } })
+  await prisma.appEvent.create({ data: { source: 'feed', type: 'comment.created', actorId: userId, actorType: 'contractor', payload: { postId, commentId: c.id } } })
+  return { id: c.id }
+}
+
+/** All comments on a post (oldest-first, flat with parentId — the client threads them) + author profiles. */
+export async function listComments(postId: string): Promise<CommentView[]> {
+  const comments = await prisma.comment.findMany({
+    where: { postId },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, userId: true, parentId: true, body: true, createdAt: true },
+  })
+  if (comments.length === 0) return []
+  const authorIds = [...new Set(comments.map((c) => c.userId))]
+  const profiles = await prisma.contractorProfile.findMany({ where: { clerkUserId: { in: authorIds } }, select: { clerkUserId: true, displayName: true, avatarUrl: true, publicSlug: true } })
+  const byUser = new Map(profiles.map((p) => [p.clerkUserId, p]))
+  return comments.map((c) => {
+    const pr = byUser.get(c.userId)
+    return {
+      id: c.id,
+      parentId: c.parentId,
+      author: { userId: c.userId, displayName: pr?.displayName ?? 'Contractor', avatarUrl: pr?.avatarUrl ?? null, publicSlug: pr?.publicSlug ?? null },
+      body: c.body,
+      createdAt: c.createdAt.toISOString(),
+    }
+  })
+}
