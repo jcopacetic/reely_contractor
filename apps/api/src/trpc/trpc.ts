@@ -23,7 +23,13 @@ export function resolveApiContext(
 ): ApiContext {
   const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined)
   const rawRole = str(headers['x-acting-role'])
-  const role: ActorRole = rawRole === 'contractor' || rawRole === 'platform_admin' ? rawRole : 'applicant'
+  // Clerk's portfolio-wide admin role is `admin`; the contractor manifest's platform_admin maps to clerkRole:admin.
+  const role: ActorRole =
+    rawRole === 'admin' || rawRole === 'platform_admin'
+      ? 'platform_admin'
+      : rawRole === 'contractor'
+        ? 'contractor'
+        : 'applicant'
   const serviceKey = headers['x-contractor-service-key']
   return {
     clerkUserId: str(headers['x-acting-user']),
