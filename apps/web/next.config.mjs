@@ -18,8 +18,7 @@ const nextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: SECURITY_HEADERS }]
   },
-  transpilePackages: ['@contractor/ui', '@contractor/api', '@contractor/db'],
-  serverExternalPackages: ['@prisma/client', '.prisma/client'],
+  transpilePackages: ['@contractor/ui'],
   outputFileTracingRoot: path.join(__dirname, '../../'),
   // Multi-Zones: mounted at reely.io/contractor via the catalog apex rewrite; set ASSET_PREFIX in prod so
   // /_next assets resolve to the contractor web origin (not the apex).

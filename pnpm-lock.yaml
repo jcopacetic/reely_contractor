@@ -63,12 +63,6 @@ importers:
       '@clerk/nextjs':
         specifier: ^6.9.6
         version: 6.39.5(next@15.5.19(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@contractor/api':
-        specifier: workspace:*
-        version: link:../api
-      '@contractor/db':
-        specifier: workspace:*
-        version: link:../../packages/db
       '@contractor/ui':
         specifier: workspace:*
         version: link:../../packages/ui
