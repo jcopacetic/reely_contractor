@@ -215,8 +215,36 @@ export async function counterBidAction(bidId: string) {
 export async function denyBidAction(bidId: string) {
   return bidAction('marketplace.denyBid', bidId)
 }
-export async function acceptBidAction(bidId: string) {
-  return bidAction('marketplace.acceptBid', bidId)
+
+/** Accept a bid → mark it accepted (marketplace) AND turn it into a contract (best-effort). */
+export async function acceptBidAction(bidId: string): Promise<{ ok?: true; error?: string; contractId?: string }> {
+  try {
+    await apiMutate('marketplace.acceptBid', { bidId })
+    const c = await apiMutate<{ contractId?: string; error?: string }>('contracts.createFromBid', { bidId }).catch(() => ({}) as { contractId?: string })
+    return { ok: true, contractId: c && 'contractId' in c ? c.contractId : undefined }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+// ── Contracts ─────────────────────────────────────────────────────────────────────
+export async function createContractItemAction(
+  contractId: string,
+  item: { kind: 'milestone' | 'scope_add' | 'deliverable' | 'note'; title: string; description?: string | null; amount?: number | null },
+): Promise<{ itemId?: string; error?: string }> {
+  try {
+    return await apiMutate<{ itemId: string }>('contracts.addItem', { contractId, ...item })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function updateContractStatusAction(contractId: string, status: 'active' | 'paused' | 'completed' | 'cancelled'): Promise<{ ok?: true; error?: string }> {
+  try {
+    return await apiMutate('contracts.updateStatus', { contractId, status })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
 }
 
 type ListingCard = {

@@ -319,3 +319,27 @@ drop policy if exists bi_bidder on bid
 ;
 create policy bi_bidder on bid for all using (bidder_user_id = current_setting('app.actor_user', true)) with check (bidder_user_id = current_setting('app.actor_user', true))
 ;
+
+-- contract: participant (client + contractor) read/write; admin/system all
+alter table contract enable row level security
+;
+drop policy if exists ct_admin on contract
+;
+create policy ct_admin on contract for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists ct_party on contract
+;
+create policy ct_party on contract for all using (current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)) with check (current_setting('app.actor_user', true) in (client_user_id, contractor_user_id))
+;
+
+-- contract_item: inherits the parent contract's participant scope; admin/system all
+alter table contract_item enable row level security
+;
+drop policy if exists cti_admin on contract_item
+;
+create policy cti_admin on contract_item for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists cti_party on contract_item
+;
+create policy cti_party on contract_item for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id))) with check (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
+;

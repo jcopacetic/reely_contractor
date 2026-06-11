@@ -6,6 +6,7 @@ import { graphRouter } from '../modules/graph/router'
 import { dmRouter } from '../modules/dm/router'
 import { marketplaceRouter } from '../modules/marketplace/router'
 import { jobFeedRouter } from '../modules/job-feed/router'
+import { contractsRouter } from '../modules/contracts/router'
 
 /**
  * Contractor api router. health + contractor-identity (apply → admin approve → vetted, Clerk role mirror)
@@ -23,6 +24,7 @@ export const appRouter = router({
   dm: dmRouter,
   marketplace: marketplaceRouter,
   jobFeed: jobFeedRouter,
+  contracts: contractsRouter,
 })
 
 export type AppRouter = typeof appRouter
