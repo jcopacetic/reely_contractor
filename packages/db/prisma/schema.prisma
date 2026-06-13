@@ -242,6 +242,8 @@ model Post {
   visibility    PostVisibility @default(followers)
   // Provenance for system milestone/achievement auto-shares (opaque; never an FK).
   sourceRef     String?        @map("source_ref")
+  linkUrl       String?        @map("link_url") // work-activity posts link to their artifact (a job/contract)
+  linkLabel     String?        @map("link_label") // e.g. "View job"
   reactionCount Int            @default(0) @map("reaction_count") // maintained aggregate
   commentCount  Int            @default(0) @map("comment_count")
   createdAt     DateTime       @default(now()) @map("created_at")

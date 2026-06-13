@@ -13,6 +13,8 @@ export type FeedPost = {
   author: Author
   body: string
   kind: string
+  linkUrl: string | null
+  linkLabel: string | null
   createdAt: string
   reactionCount: number
   commentCount: number
@@ -156,6 +158,11 @@ function PostCard({ post, me }: { post: FeedPost; me: Me }) {
       </div>
 
       <p className="mt-2.5 whitespace-pre-line text-sm text-foreground/90">{post.body}</p>
+      {post.linkUrl && (
+        <a href={post.linkUrl} className="mt-2 inline-flex items-center gap-1 rounded-full border border-border px-3 py-1 text-xs font-medium text-primary transition hover:bg-primary/5">
+          {post.linkLabel ?? 'View'} →
+        </a>
+      )}
 
       <div className="mt-3 flex items-center gap-1 border-t border-border pt-2.5">
         {REACTIONS.map((r) => {

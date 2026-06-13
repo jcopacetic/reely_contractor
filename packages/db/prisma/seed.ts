@@ -28,7 +28,11 @@ const ACHIEVEMENTS: { key: string; name: string; description: string; xp: number
   { key: 'welcomed', name: 'Welcomed', description: 'Completed onboarding and joined the club.', xp: 50, order: 10, criteria: { event: 'profile.onboarded', threshold: 1 } },
   { key: 'first_post', name: 'First Post', description: 'Shared your first post.', xp: 25, order: 20, criteria: { event: 'post.created', threshold: 1 } },
   { key: 'connector', name: 'Connector', description: 'Followed 5 fellow contractors.', xp: 25, order: 30, criteria: { event: 'follow.created', threshold: 5 } },
+  { key: 'first_connection', name: 'First Connection', description: 'Followed your first contractor.', xp: 15, order: 25, criteria: { event: 'follow.created', threshold: 1 } },
   { key: 'conversationalist', name: 'Conversationalist', description: 'Left 10 comments.', xp: 30, order: 40, criteria: { event: 'comment.created', threshold: 10 } },
+  { key: 'first_message', name: 'Icebreaker', description: 'Sent your first message.', xp: 15, order: 45, criteria: { event: 'room.message.sent', threshold: 1 } },
+  { key: 'first_job', name: 'Now Hiring', description: 'Posted your first job.', xp: 25, order: 55, criteria: { event: 'listing.posted', threshold: 1 } },
+  { key: 'first_bid', name: 'In the Running', description: 'Sent your first bid.', xp: 25, order: 56, criteria: { event: 'bid.submitted', threshold: 1 } },
   { key: 'first_contract', name: 'First Contract', description: 'Signed your first contract.', xp: 100, order: 50, criteria: { event: 'contract.signed', threshold: 1 } },
   { key: 'on_the_clock', name: 'On the Clock', description: 'Logged your first approved hour.', xp: 50, order: 60, criteria: { event: 'time.approved', threshold: 1 } },
 ]

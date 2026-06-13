@@ -15,6 +15,8 @@ export type FeedPost = {
   author: Author
   body: string
   kind: string
+  linkUrl: string | null
+  linkLabel: string | null
   createdAt: string
   reactionCount: number
   commentCount: number
@@ -33,8 +35,8 @@ export async function createPost(userId: string, body: string, kind: 'update' | 
   return { id: post.id }
 }
 
-type RawPost = { id: string; authorUserId: string; body: string; kind: string; reactionCount: number; commentCount: number; createdAt: Date }
-const POST_SELECT = { id: true, authorUserId: true, body: true, kind: true, reactionCount: true, commentCount: true, createdAt: true } as const
+type RawPost = { id: string; authorUserId: string; body: string; kind: string; linkUrl: string | null; linkLabel: string | null; reactionCount: number; commentCount: number; createdAt: Date }
+const POST_SELECT = { id: true, authorUserId: true, body: true, kind: true, linkUrl: true, linkLabel: true, reactionCount: true, commentCount: true, createdAt: true } as const
 
 /** Resolve author profiles + the viewer's own reactions for a batch of raw posts → FeedPost[]. */
 async function hydrate(viewerUserId: string, posts: RawPost[]): Promise<FeedPost[]> {
@@ -54,6 +56,8 @@ async function hydrate(viewerUserId: string, posts: RawPost[]): Promise<FeedPost
       author: { userId: p.authorUserId, displayName: pr?.displayName ?? 'Contractor', avatarUrl: pr?.avatarUrl ?? null, publicSlug: pr?.publicSlug ?? null },
       body: p.body,
       kind: p.kind,
+      linkUrl: p.linkUrl,
+      linkLabel: p.linkLabel,
       createdAt: p.createdAt.toISOString(),
       reactionCount: p.reactionCount,
       commentCount: p.commentCount,

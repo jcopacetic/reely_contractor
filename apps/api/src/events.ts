@@ -16,5 +16,5 @@ export async function emit(
 ): Promise<void> {
   await prisma.appEvent.create({ data: { source, type, actorId, actorType, payload } })
   // Fire-and-forget: the achievements fan-out must never block the request path (the event is durable).
-  void enqueue('achievements.process', { userId: actorId, type, actorType }).catch(() => {})
+  void enqueue('achievements.process', { userId: actorId, type, actorType, payload }).catch(() => {})
 }

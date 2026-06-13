@@ -21,8 +21,13 @@ type Rule = { key: string; event: string; threshold: number; measure: (userId: s
 const RULES: Rule[] = [
   { key: 'welcomed', event: 'profile.onboarded', threshold: 1, measure: (u) => prisma.contractorProfile.count({ where: { clerkUserId: u, onboardedAt: { not: null } } }) },
   { key: 'first_post', event: 'post.created', threshold: 1, measure: (u) => prisma.post.count({ where: { authorUserId: u, kind: { not: 'achievement' } } }) },
+  { key: 'first_connection', event: 'follow.created', threshold: 1, measure: (u) => prisma.follow.count({ where: { followerUserId: u } }) },
   { key: 'connector', event: 'follow.created', threshold: 5, measure: (u) => prisma.follow.count({ where: { followerUserId: u } }) },
   { key: 'conversationalist', event: 'comment.created', threshold: 10, measure: (u) => prisma.comment.count({ where: { userId: u } }) },
+  // onboarding/encouragement nudges toward the work loop + chat (the events already emit)
+  { key: 'first_message', event: 'room.message.sent', threshold: 1, measure: (u) => prisma.roomMessage.count({ where: { senderUserId: u, senderTenantRef: null } }) },
+  { key: 'first_job', event: 'listing.posted', threshold: 1, measure: (u) => prisma.listing.count({ where: { ownerUserId: u } }) },
+  { key: 'first_bid', event: 'bid.submitted', threshold: 1, measure: (u) => prisma.bid.count({ where: { bidderUserId: u } }) },
 ]
 
 /** Extend the contractor's activity streak. Consecutive UTC days +1; a gap resets to 1; same day is a no-op. */
@@ -67,11 +72,28 @@ async function award(userId: string, key: string): Promise<void> {
 export async function processAchievements(data: { userId?: string; type?: string; actorType?: string }): Promise<void> {
   const { userId, type, actorType } = data
   if (!userId || !type) return
-  if (actorType === 'admin' || actorType === 'system') return // only contractor-actor activity counts toward XP
+  if (actorType !== 'contractor') return // only contractor-actor activity counts toward XP (not admin/system/client)
   await touchStreak(userId)
   for (const r of RULES.filter((r) => r.event === type)) {
     const already = await prisma.achievementAward.findFirst({ where: { userId, achievement: { key: r.key } }, select: { id: true } })
     if (already) continue
     if ((await r.measure(userId)) >= r.threshold) await award(userId, r.key)
+  }
+}
+
+/**
+ * Turn a contractor's work action into an activity-feed post (X-style: your job postings show in your feed). A
+ * system-context write (like the achievement auto-share) so it doesn't re-enter the engine. Native contractor
+ * jobs only — Board-originated listings (boardPartRef set) belong to a Board member, not the club.
+ */
+export async function shareWorkActivity(data: { userId?: string; type?: string; actorType?: string; payload?: unknown }): Promise<void> {
+  const { userId, type, actorType, payload } = data
+  if (!userId || actorType !== 'contractor') return
+  if (type === 'listing.posted') {
+    const listingId = (payload as { listingId?: string } | null)?.listingId
+    if (!listingId) return
+    const listing = await prisma.listing.findUnique({ where: { id: listingId }, select: { title: true, ownerUserId: true, boardPartRef: true } })
+    if (!listing || listing.ownerUserId !== userId || listing.boardPartRef) return
+    await prisma.post.create({ data: { authorUserId: userId, kind: 'update', body: `📋 Posted a job — ${listing.title}`, sourceRef: listingId, linkUrl: `/contractor/work/${listingId}`, linkLabel: 'View job' } })
   }
 }

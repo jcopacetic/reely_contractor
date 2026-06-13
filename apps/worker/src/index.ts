@@ -1,6 +1,6 @@
 import { Worker, type Job } from 'bullmq'
 import { CONTRACTOR_QUEUE, JOBS, connection } from './connection'
-import { processAchievements } from './achievements'
+import { processAchievements, shareWorkActivity } from './achievements'
 
 const SERVICE = 'contractor-worker'
 
@@ -11,7 +11,9 @@ const SERVICE = 'contractor-worker'
 async function processJob(job: Job): Promise<void> {
   switch (job.name) {
     case JOBS.achievementsProcess:
-      return processAchievements(job.data)
+      await processAchievements(job.data)
+      await shareWorkActivity(job.data)
+      return
     default:
       throw new Error(`unknown job: ${job.name}`)
   }
