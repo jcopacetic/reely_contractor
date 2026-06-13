@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { prisma } from '@contractor/db'
 import { appRouter } from '../trpc/router'
 import type { ApiContext, ActorRole } from '../trpc/trpc'
-import { sweepCycle, chargeDueCycles, listCycles, raiseCycleDispute, startOnboarding, myPayoutAccount } from '../modules/payments/store'
+import { sweepCycle, chargeDueCycles, listCycles, raiseCycleDispute, startOnboarding, myPayoutAccount, providerListCycles } from '../modules/payments/store'
 
 /**
  * DB-backed security e2e — the contractor node's "definition of done" invariants against real Postgres,
@@ -361,5 +361,17 @@ describe('payments — billing engine', () => {
   it('payment reads require vetting; dispute resolution requires admin', async () => {
     await expect(call(ctx(PAT, 'applicant')).payments.payoutAccount()).rejects.toThrow(/vetting required/)
     await expect(call(ctx(BOB, 'contractor')).payments.resolveDispute({ disputeId: '00000000-0000-0000-0000-0000000000ff', resolution: 'void' })).rejects.toThrow(/platform_admin required/)
+  })
+
+  it('the Board provider read is boardRef-scoped: native contracts are forbidden, board contracts returned', async () => {
+    // The native contract above carries no boardRef → the provider read refuses it.
+    expect(await providerListCycles(contractId)).toEqual({ error: 'forbidden' })
+    // A Board-originated contract (boardRef set) is readable; its swept cycle comes back.
+    const bc = await prisma.contract.create({ data: { clientUserId: ALICE, contractorUserId: BOB, boardRef: TENANT, title: 'Board work', rateType: 'fixed', rateAmount: 500 } })
+    await prisma.timeEntry.create({ data: { contractId: bc.id, contractorUserId: BOB, startedAt: P_START, endedAt: new Date(P_START.getTime() + 3600_000), durationSeconds: 3600, source: 'timer', approved: true, approvedAt: new Date() } })
+    await sweepCycle(bc.id, P_START, P_END)
+    const cycles = await providerListCycles(bc.id)
+    expect(Array.isArray(cycles)).toBe(true)
+    expect((cycles as Array<{ totalAmount: number }>)[0]!.totalAmount).toBe(500) // fixed rate
   })
 })

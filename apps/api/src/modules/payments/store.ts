@@ -106,9 +106,8 @@ async function isParticipant(contractId: string, userId: string): Promise<boolea
   return !!c && (c.clientUserId === userId || c.contractorUserId === userId)
 }
 
-/** A contract's billing cycles (participant-gated) with charge/payout/dispute status. */
-export async function listCycles(viewerUserId: string, contractId: string): Promise<CycleView[] | null> {
-  if (!(await isParticipant(contractId, viewerUserId))) return null
+/** Load a contract's cycles as views (no access check — callers gate first). */
+async function loadCycleViews(contractId: string): Promise<CycleView[]> {
   const rows = await prisma.billingCycle.findMany({
     where: { contractId },
     orderBy: { periodStart: 'desc' },
@@ -129,6 +128,20 @@ export async function listCycles(viewerUserId: string, contractId: string): Prom
     payoutStatus: r.charge?.payout?.status ?? null,
     openDispute: r.disputes.length > 0,
   }))
+}
+
+/** A contract's billing cycles (participant-gated) with charge/payout/dispute status. */
+export async function listCycles(viewerUserId: string, contractId: string): Promise<CycleView[] | null> {
+  if (!(await isParticipant(contractId, viewerUserId))) return null
+  return loadCycleViews(contractId)
+}
+
+/** A Board-originated contract's billing cycles, for Board (the client side). Scoped: only contracts carrying a boardRef. */
+export async function providerListCycles(contractRef: string): Promise<CycleView[] | { error: string }> {
+  const c = await prisma.contract.findUnique({ where: { id: contractRef }, select: { boardRef: true } })
+  if (!c) return { error: 'not_found' }
+  if (!c.boardRef) return { error: 'forbidden' }
+  return loadCycleViews(contractRef)
 }
 
 /** A participant raises a dispute on a cycle still in its window — blocks the charge until an admin resolves. */

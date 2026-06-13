@@ -361,6 +361,26 @@ export async function loadEvidenceAction(entryId: string): Promise<{ samples: Ac
   }
 }
 
+// ── Payments / payouts ────────────────────────────────────────────────────────────
+/** Ensure the contractor's Stripe Connect (Express) account + get an onboarding link to complete KYC. */
+export async function startPayoutOnboardingAction(): Promise<{ url?: string; error?: string }> {
+  try {
+    return await apiMutate<{ url: string }>('payments.startOnboarding')
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+/** A participant contests a billing cycle (blocks its charge until an admin resolves). */
+export async function raiseCycleDisputeAction(billingCycleId: string, reason: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('payments.raiseDispute', { billingCycleId, reason })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 type ListingCard = {
   id: string; ownerUserId: string; boardPartRef: string | null; title: string; description: string
   categoryIds: string[]; budgetType: BudgetType; budgetAmount: number | null; status: string; createdAt: string; bidCount: number; isOwner: boolean

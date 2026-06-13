@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, Plus, Clock } from 'lucide-react'
+import { Loader2, Plus } from 'lucide-react'
 import { createContractItemAction, updateContractStatusAction } from '@/app/contractor/actions'
 import { budgetLabel } from '@/components/work-browse'
 
@@ -106,11 +106,6 @@ export function ContractDetail({ contract }: { contract: Contract }) {
           </div>
         )}
         {err && <p className="mt-2 text-sm text-destructive">{err}</p>}
-      </section>
-
-      <section className="rounded-xl border border-dashed border-border bg-muted/20 p-4 text-center text-xs text-muted-foreground">
-        <Clock className="mx-auto mb-1 size-4 opacity-40" />
-        Weekly billing &amp; payouts — coming soon. Approved time is what bills.
       </section>
     </div>
   )
