@@ -1,6 +1,7 @@
 import { Worker, type Job } from 'bullmq'
 import { CONTRACTOR_QUEUE, JOBS, connection } from './connection'
 import { processAchievements, shareWorkActivity } from './achievements'
+import { maybeRecomputeStats } from './stats'
 import { runBillingCycle } from './payments'
 import { registerSchedules } from './scheduler'
 
@@ -15,6 +16,7 @@ async function processJob(job: Job): Promise<void> {
     case JOBS.achievementsProcess:
       await processAchievements(job.data)
       await shareWorkActivity(job.data)
+      await maybeRecomputeStats(job.data)
       return
     case JOBS.billingCycle: {
       const r = await runBillingCycle()
