@@ -34,7 +34,7 @@ export async function saveProfileAction(input: {
   position?: string | null
   headline?: string | null
   bio?: string | null
-  links?: Link[]
+  blocks?: import('@/lib/profile-blocks').Block[]
   categoryIds?: string[]
   publicSlug?: string | null
 }): Promise<Result> {

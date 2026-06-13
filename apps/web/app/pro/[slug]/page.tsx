@@ -4,6 +4,7 @@ import { Briefcase, Clock, ExternalLink } from 'lucide-react'
 import { apiQuery } from '@/lib/api'
 import { JsonLd } from '@/components/json-ld'
 import { buildMetadata, ogImage, profileLd } from '@/lib/seo'
+import type { Block } from '@/lib/profile-blocks'
 
 // ISR: the public profile is anonymous + safe-subset; the read is cache-friendly (revalidate below),
 // so the page no longer needs `force-dynamic`. Authenticated club pages keep `no-store` (lib/api.ts).
@@ -18,6 +19,7 @@ type PublicProfile = {
   categories: string[]
   avatarUrl: string | null
   links: { label: string; url: string }[]
+  blocks: Block[]
   contractsCompleted: number
   hoursLogged: number
 } | null
@@ -57,6 +59,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
   const p = await getProfile(slug)
   if (!p) return notFound()
 
+  const linkUrls = p.blocks.flatMap((b) => (b.type === 'links' ? b.items.map((l) => l.url) : []))
   const ld = profileLd({
     name: p.displayName,
     slug,
@@ -64,7 +67,7 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
     headline: p.headline,
     imageUrl: p.avatarUrl,
     categories: p.categories,
-    sameAs: p.links.map((l) => l.url),
+    sameAs: linkUrls,
   })
 
   return (
@@ -99,17 +102,60 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
         </div>
       )}
 
-      {p.links.length > 0 && (
-        <div className="mt-6 space-y-2">
-          {p.links.map((l, i) => (
-            <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium shadow-sm transition hover:border-primary/40">
-              {l.label} <ExternalLink className="size-4 text-muted-foreground" />
-            </a>
-          ))}
+      {p.blocks.length > 0 && (
+        <div className="mt-6 space-y-6">
+          {p.blocks.map((b) => <BlockView key={b.id} block={b} />)}
         </div>
       )}
 
+      {/* Reviews — populated by the client-review system (coming). */}
+      <section className="mt-8">
+        <h2 className="mb-2 font-display text-sm font-semibold text-muted-foreground">Reviews</h2>
+        <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-center text-xs text-muted-foreground">No reviews yet — client reviews will appear here.</div>
+      </section>
+
       <p className="mt-10 text-center text-[11px] text-muted-foreground">A Reely contractor · reely.io</p>
     </main>
+  )
+}
+
+/** Render one landing-page block in Reely's styling (structure is ours; content is the contractor's). */
+function BlockView({ block }: { block: Block }) {
+  if (block.type === 'text') {
+    return (
+      <section>
+        {block.heading && <h2 className="mb-1.5 font-display text-base font-semibold">{block.heading}</h2>}
+        <p className="whitespace-pre-line text-sm text-foreground/90">{block.body}</p>
+      </section>
+    )
+  }
+  if (block.type === 'links') {
+    return (
+      <section className="space-y-2">
+        {block.title && <h2 className="font-display text-sm font-semibold text-muted-foreground">{block.title}</h2>}
+        {block.items.map((l, i) => (
+          <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium shadow-sm transition hover:border-primary/40">
+            {l.label} <ExternalLink className="size-4 text-muted-foreground" />
+          </a>
+        ))}
+      </section>
+    )
+  }
+  if (block.type === 'image') {
+    return (
+      <figure>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={block.url} alt={block.alt ?? ''} className="w-full rounded-xl border border-border object-cover" />
+        {block.caption && <figcaption className="mt-1.5 text-center text-xs text-muted-foreground">{block.caption}</figcaption>}
+      </figure>
+    )
+  }
+  return (
+    <section>
+      {block.title && <h2 className="mb-1.5 font-display text-base font-semibold">{block.title}</h2>}
+      <ul className="list-disc space-y-1 pl-5 text-sm text-foreground/90">
+        {block.items.map((it, i) => <li key={i}>{it}</li>)}
+      </ul>
+    </section>
   )
 }

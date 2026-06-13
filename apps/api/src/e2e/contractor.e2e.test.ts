@@ -90,7 +90,7 @@ describe('public-field discipline', () => {
     const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })
     expect(pub).toBeTruthy()
     expect(Object.keys(pub!).sort()).toEqual(
-      ['avatarUrl', 'bio', 'categories', 'company', 'contractsCompleted', 'displayName', 'headline', 'hoursLogged', 'links', 'position'].sort(),
+      ['avatarUrl', 'bio', 'blocks', 'categories', 'company', 'contractsCompleted', 'displayName', 'headline', 'hoursLogged', 'links', 'position'].sort(),
     )
     // the PII-ish raw identity + account internals must be absent
     for (const leaked of ['firstName', 'lastName', 'clerkUserId', 'isPublic', 'publicSlug', 'contractorIdentityId']) {
@@ -104,6 +104,31 @@ describe('public-field discipline', () => {
   it('does not expose a non-public profile (slug 404s)', async () => {
     const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-bob` })
     expect(pub).toBeNull()
+  })
+})
+
+describe('profile blocks (landing-page builder)', () => {
+  it('synthesizes a links block from legacy flat links when no blocks exist', async () => {
+    await prisma.contractorProfile.update({ where: { clerkUserId: ALICE }, data: { links: [{ label: 'Portfolio', url: 'https://alice.dev' }], blocks: [] } })
+    const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })
+    expect(pub!.blocks).toHaveLength(1)
+    expect(pub!.blocks[0]).toMatchObject({ type: 'links', items: [{ label: 'Portfolio', url: 'https://alice.dev' }] })
+  })
+  it('saves ordered typed blocks and serves them publicly in order', async () => {
+    const blocks = [
+      { id: 'b1', type: 'text' as const, heading: 'About', body: 'Hi there' },
+      { id: 'b2', type: 'links' as const, title: 'Find me', items: [{ label: 'GitHub', url: 'https://github.com/alice' }] },
+      { id: 'b3', type: 'list' as const, title: 'Stack', items: ['TypeScript', 'Next.js'] },
+    ]
+    expect(await call(ctx(ALICE, 'contractor')).profile.update({ blocks })).toEqual({ ok: true })
+    const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })
+    expect(pub!.blocks.map((b) => b.type)).toEqual(['text', 'links', 'list'])
+    expect(pub!.blocks[2]).toMatchObject({ type: 'list', items: ['TypeScript', 'Next.js'] })
+  })
+  it('rejects an invalid block (a links item with a bad URL)', async () => {
+    await expect(
+      call(ctx(ALICE, 'contractor')).profile.update({ blocks: [{ id: 'x', type: 'links' as const, items: [{ label: 'bad', url: 'not-a-url' }] }] }),
+    ).rejects.toThrow()
   })
 })
 

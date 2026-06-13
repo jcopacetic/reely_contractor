@@ -2,12 +2,13 @@ import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import { apiQuery } from '@/lib/api'
 import { ProfileForm, type ProfileInitial } from '@/components/profile-form'
+import type { Block } from '@/lib/profile-blocks'
 
 export const dynamic = 'force-dynamic'
 
 type Own = {
   profile:
-    | { firstName: string; lastName: string; company: string | null; position: string | null; headline: string | null; bio: string | null; links: { label: string; url: string }[]; categoryIds: string[]; isPublic: boolean; publicSlug: string | null; onboarded: boolean }
+    | { firstName: string; lastName: string; company: string | null; position: string | null; headline: string | null; bio: string | null; blocks: Block[]; categoryIds: string[]; isPublic: boolean; publicSlug: string | null; onboarded: boolean }
     | null
   requiredDocs: string[]
   acceptedDocs: string[]
@@ -25,7 +26,7 @@ export default async function ProfileEditorPage() {
         position: own.profile.position,
         headline: own.profile.headline,
         bio: own.profile.bio,
-        links: own.profile.links,
+        blocks: own.profile.blocks,
         categoryIds: own.profile.categoryIds,
         isPublic: own.profile.isPublic,
         publicSlug: own.profile.publicSlug,

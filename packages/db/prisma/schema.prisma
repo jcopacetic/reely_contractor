@@ -199,7 +199,8 @@ model ContractorProfile {
   isPublic            Boolean  @default(false) @map("is_public") // gates the public surface
   publicSlug          String?  @unique @map("public_slug") // shareable URL
   avatarUrl           String?  @map("avatar_url") // R2; public
-  links               Json     @default("[]") // [{label,url}]; public
+  links               Json     @default("[]") // [{label,url}]; public — LEGACY (superseded by a links block; kept for back-compat)
+  blocks              Json     @default("[]") // ordered landing-page content blocks (text/links/image/list); public
   contractsCompleted  Int      @default(0) @map("contracts_completed") // system-driven rollup; public
   hoursLogged         Decimal  @default(0) @map("hours_logged") @db.Decimal(12, 2) // system-driven rollup; public
   onboardedAt         DateTime? @map("onboarded_at") // set when onboarding (categories + docs) completes

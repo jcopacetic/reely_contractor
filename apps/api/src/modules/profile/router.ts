@@ -4,6 +4,15 @@ import * as profile from './store'
 
 const linkSchema = z.object({ label: z.string().min(1).max(60), url: z.string().url() })
 
+// Landing-page content blocks (the slim-Linktree builder). Discriminated on `type`; bounded everywhere.
+const blockId = z.string().min(1).max(64)
+const blockSchema = z.discriminatedUnion('type', [
+  z.object({ id: blockId, type: z.literal('text'), heading: z.string().max(120).nullish(), body: z.string().min(1).max(2000) }),
+  z.object({ id: blockId, type: z.literal('links'), title: z.string().max(120).nullish(), items: z.array(z.object({ label: z.string().min(1).max(80), url: z.string().url().max(500) })).min(1).max(15) }),
+  z.object({ id: blockId, type: z.literal('image'), url: z.string().url().max(500), alt: z.string().max(200).nullish(), caption: z.string().max(200).nullish() }),
+  z.object({ id: blockId, type: z.literal('list'), title: z.string().max(120).nullish(), items: z.array(z.string().min(1).max(200)).min(1).max(20) }),
+])
+
 /** profile tRPC surface. Editor + onboarding = vetted contractor; get-public = anonymous (safe subset). */
 export const profileRouter = router({
   getOwn: vettedProcedure.query(({ ctx }) => profile.getOwn(ctx.clerkUserId)),
@@ -18,6 +27,7 @@ export const profileRouter = router({
         bio: z.string().max(2000).nullish(),
         avatarUrl: z.string().url().nullish(),
         links: z.array(linkSchema).max(10).optional(),
+        blocks: z.array(blockSchema).max(20).optional(),
         categoryIds: z.array(z.string().uuid()).max(12).optional(),
       }),
     )

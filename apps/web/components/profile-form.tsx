@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, Plus, Trash2, Check, ExternalLink, Globe } from 'lucide-react'
+import { Loader2, Check, ExternalLink, Globe } from 'lucide-react'
 import { saveProfileAction, checkSlugAction, setPublicAction, acceptDocAction, completeOnboardingAction } from '@/app/contractor/actions'
+import { ProfileBlocksEditor } from '@/components/profile-blocks-editor'
+import { cleanBlocks, type Block } from '@/lib/profile-blocks'
 
-type Link = { label: string; url: string }
 type Category = { id: string; name: string; slug: string }
 export type ProfileInitial = {
   firstName: string
@@ -14,7 +15,7 @@ export type ProfileInitial = {
   position: string | null
   headline: string | null
   bio: string | null
-  links: Link[]
+  blocks: Block[]
   categoryIds: string[]
   isPublic: boolean
   publicSlug: string | null
@@ -42,7 +43,7 @@ export function ProfileForm({
   const [position, setPosition] = useState(initial?.position ?? '')
   const [headline, setHeadline] = useState(initial?.headline ?? '')
   const [bio, setBio] = useState(initial?.bio ?? '')
-  const [links, setLinks] = useState<Link[]>(initial?.links ?? [])
+  const [blocks, setBlocks] = useState<Block[]>(initial?.blocks ?? [])
   const [cats, setCats] = useState<Set<string>>(new Set(initial?.categoryIds ?? []))
   const [slug, setSlug] = useState(initial?.publicSlug ?? '')
   const [isPublic, setIsPublic] = useState(initial?.isPublic ?? false)
@@ -51,7 +52,6 @@ export function ProfileForm({
   const [err, setErr] = useState<string | null>(null)
 
   const toggleCat = (id: string) => setCats((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const setLink = (i: number, k: keyof Link, v: string) => setLinks((l) => l.map((x, j) => (j === i ? { ...x, [k]: v } : x)))
 
   function save() {
     setErr(null); setMsg(null)
@@ -63,7 +63,7 @@ export function ProfileForm({
         position: position.trim() || null,
         headline: headline.trim() || null,
         bio: bio.trim() || null,
-        links: links.filter((l) => l.label.trim() && l.url.trim()),
+        blocks: cleanBlocks(blocks),
         categoryIds: [...cats],
         publicSlug: slug.trim() || null,
       })
@@ -99,7 +99,7 @@ export function ProfileForm({
           position: position.trim() || null,
           headline: headline.trim() || null,
           bio: bio.trim() || null,
-          links: links.filter((l) => l.label.trim() && l.url.trim()),
+          blocks: cleanBlocks(blocks),
           categoryIds: [...cats],
           publicSlug: slug.trim(),
         })
@@ -175,19 +175,8 @@ export function ProfileForm({
         </div>
       </Section>
 
-      <Section title="Links" hint="Your linktree — portfolio, socials, scheduling. Up to 10.">
-        <div className="space-y-2">
-          {links.map((l, i) => (
-            <div key={i} className="flex gap-2">
-              <input value={l.label} onChange={(e) => setLink(i, 'label', e.target.value)} placeholder="Label" className={`${inputCls} w-40`} />
-              <input value={l.url} onChange={(e) => setLink(i, 'url', e.target.value)} placeholder="https://…" className={`${inputCls} flex-1`} />
-              <button type="button" onClick={() => setLinks((ls) => ls.filter((_, j) => j !== i))} className="grid size-9 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-muted"><Trash2 className="size-4" /></button>
-            </div>
-          ))}
-          {links.length < 10 && (
-            <button type="button" onClick={() => setLinks((l) => [...l, { label: '', url: '' }])} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"><Plus className="size-4" /> Add link</button>
-          )}
-        </div>
+      <Section title="Your page" hint="Build your public profile — stack blocks of links, text, images, and lists. Reorder them any way you like.">
+        <ProfileBlocksEditor value={blocks} onChange={setBlocks} />
       </Section>
 
       <Section title="Public URL" hint="Your shareable profile at reely.io/pro/your-handle.">

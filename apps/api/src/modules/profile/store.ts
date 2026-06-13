@@ -12,6 +12,22 @@ const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 type Link = { label: string; url: string }
 
+/** Ordered landing-page content blocks (the slim-Linktree builder). Validated by the router's zod union. */
+export type Block =
+  | { id: string; type: 'text'; heading?: string | null; body: string }
+  | { id: string; type: 'links'; title?: string | null; items: Link[] }
+  | { id: string; type: 'image'; url: string; alt?: string | null; caption?: string | null }
+  | { id: string; type: 'list'; title?: string | null; items: string[] }
+
+/** A profile's blocks — synthesizing a single links block from the legacy flat `links` when none exist yet, so
+ *  pre-builder profiles still render. The new builder writes `blocks`; `links` is kept only as this fallback. */
+function profileBlocks(blocksJson: unknown, links: Link[]): Block[] {
+  const blocks = (blocksJson as Block[] | null) ?? []
+  if (blocks.length > 0) return blocks
+  if (links.length > 0) return [{ id: 'legacy-links', type: 'links', title: 'Links', items: links }]
+  return []
+}
+
 async function identityId(clerkUserId: string): Promise<string | null> {
   const i = await prisma.contractorIdentity.findUnique({ where: { clerkUserId }, select: { id: true } })
   return i?.id ?? null
@@ -33,6 +49,7 @@ export async function getOwn(clerkUserId: string) {
       bio: p.bio,
       avatarUrl: p.avatarUrl,
       links: (p.links as unknown as Link[]) ?? [],
+      blocks: profileBlocks(p.blocks, (p.links as unknown as Link[]) ?? []),
       categoryIds: (p.categoryIds as unknown as string[]) ?? [],
       isPublic: p.isPublic,
       publicSlug: p.publicSlug,
@@ -48,7 +65,7 @@ export async function getOwn(clerkUserId: string) {
 /** Upsert the editable profile fields (basics + links + categories) in one save. Validates categories. */
 export async function update(
   clerkUserId: string,
-  patch: { firstName?: string; lastName?: string; company?: string | null; position?: string | null; displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; categoryIds?: string[]; publicSlug?: string | null },
+  patch: { firstName?: string; lastName?: string; company?: string | null; position?: string | null; displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; blocks?: Block[]; categoryIds?: string[]; publicSlug?: string | null },
 ): Promise<{ ok: true } | { error: string }> {
   const idId = await identityId(clerkUserId)
   if (!idId) return { error: 'no_identity' }
@@ -83,6 +100,7 @@ export async function update(
   if (patch.bio !== undefined) data.bio = patch.bio
   if (patch.avatarUrl !== undefined) data.avatarUrl = patch.avatarUrl
   if (patch.links !== undefined) data.links = patch.links as unknown as Prisma.InputJsonValue
+  if (patch.blocks !== undefined) data.blocks = patch.blocks as unknown as Prisma.InputJsonValue
   if (categoryIds !== undefined) data.categoryIds = categoryIds as unknown as Prisma.InputJsonValue
   if (publicSlug !== undefined) data.publicSlug = publicSlug
 
@@ -102,6 +120,7 @@ export async function update(
         bio: patch.bio ?? null,
         avatarUrl: patch.avatarUrl ?? null,
         links: (patch.links ?? []) as unknown as Prisma.InputJsonValue,
+        blocks: (patch.blocks ?? []) as unknown as Prisma.InputJsonValue,
         categoryIds: (categoryIds ?? []) as unknown as Prisma.InputJsonValue,
         publicSlug: publicSlug ?? null,
       },
@@ -178,11 +197,12 @@ export async function listPublicSlugs(): Promise<Array<{ slug: string; updatedAt
 export async function getPublic(slug: string) {
   const p = await prisma.contractorProfile.findFirst({
     where: { publicSlug: slug.toLowerCase(), isPublic: true },
-    select: { displayName: true, company: true, position: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, contractsCompleted: true, hoursLogged: true },
+    select: { displayName: true, company: true, position: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, blocks: true, contractsCompleted: true, hoursLogged: true },
   })
   if (!p) return null
   const ids = (p.categoryIds as unknown as string[]) ?? []
   const cats = ids.length ? await prisma.skillCategory.findMany({ where: { id: { in: ids } }, select: { name: true } }) : []
+  const links = (p.links as unknown as Link[]) ?? []
   return {
     displayName: p.displayName,
     company: p.company,
@@ -191,7 +211,8 @@ export async function getPublic(slug: string) {
     bio: p.bio,
     categories: cats.map((c) => c.name),
     avatarUrl: p.avatarUrl,
-    links: (p.links as unknown as Link[]) ?? [],
+    links,
+    blocks: profileBlocks(p.blocks, links),
     contractsCompleted: p.contractsCompleted,
     hoursLogged: Number(p.hoursLogged),
   }
