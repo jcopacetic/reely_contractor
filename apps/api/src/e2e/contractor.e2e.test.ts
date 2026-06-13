@@ -90,7 +90,7 @@ describe('public-field discipline', () => {
     const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })
     expect(pub).toBeTruthy()
     expect(Object.keys(pub!).sort()).toEqual(
-      ['avatarUrl', 'bio', 'blocks', 'categories', 'company', 'contractsCompleted', 'displayName', 'headline', 'hoursLogged', 'links', 'position'].sort(),
+      ['avatarUrl', 'bio', 'blocks', 'categories', 'company', 'contractsCompleted', 'displayName', 'headline', 'hoursLogged', 'links', 'position', 'reviews'].sort(),
     )
     // the PII-ish raw identity + account internals must be absent
     for (const leaked of ['firstName', 'lastName', 'clerkUserId', 'isPublic', 'publicSlug', 'contractorIdentityId']) {
@@ -398,5 +398,58 @@ describe('payments — billing engine', () => {
     const cycles = await providerListCycles(bc.id)
     expect(Array.isArray(cycles)).toBe(true)
     expect((cycles as Array<{ totalAmount: number }>)[0]!.totalAmount).toBe(500) // fixed rate
+  })
+})
+
+/**
+ * Reviews — the client reviews the contractor. Weekly reviews are private until the CONTRACTOR approves them for
+ * display; the FINAL review (at close) is always public. The public profile shows the displayed set + an aggregate.
+ * Here ALICE is the (public-profile) contractor; BOB is the client.
+ */
+describe('reviews — client reviews of the contractor', () => {
+  let cId: string
+  beforeAll(async () => {
+    const c = await prisma.contract.create({ data: { clientUserId: BOB, contractorUserId: ALICE, title: 'Reviewed work', rateType: 'hourly', rateAmount: 100 } })
+    cId = c.id
+  })
+
+  it('the client leaves a weekly review (one per week — resubmitting updates it), hidden until approved', async () => {
+    expect(await call(ctx(BOB, 'contractor')).reviews.createWeekly({ contractId: cId, rating: 4, body: 'Good week' })).toEqual({ ok: true })
+    expect(await call(ctx(BOB, 'contractor')).reviews.createWeekly({ contractId: cId, rating: 5, body: 'Great week, actually' })).toEqual({ ok: true })
+    const list = await call(ctx(ALICE, 'contractor')).reviews.list({ contractId: cId })
+    const weeklies = list!.filter((r) => r.kind === 'weekly')
+    expect(weeklies).toHaveLength(1) // upserted, not duplicated
+    expect(weeklies[0]!.rating).toBe(5)
+    expect(weeklies[0]!.approvedForDisplay).toBe(false)
+    const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })
+    expect(pub!.reviews.count).toBe(0) // not on the public profile yet
+  })
+
+  it('the contractor approves a weekly review → it shows on the public profile', async () => {
+    const list = await call(ctx(ALICE, 'contractor')).reviews.list({ contractId: cId })
+    const weekly = list!.find((r) => r.kind === 'weekly')!
+    expect(await call(ctx(ALICE, 'contractor')).reviews.toggleApproval({ reviewId: weekly.id })).toMatchObject({ ok: true, approvedForDisplay: true })
+    const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })
+    expect(pub!.reviews.count).toBe(1)
+    expect(pub!.reviews.avg).toBe(5)
+  })
+
+  it('a final review is rejected while active, accepted once completed, and is ALWAYS public', async () => {
+    expect(await call(ctx(BOB, 'contractor')).reviews.createFinal({ contractId: cId, rating: 5, body: 'too early' })).toEqual({ error: 'not_completed' })
+    await prisma.contract.update({ where: { id: cId }, data: { status: 'completed', endedAt: new Date() } })
+    expect(await call(ctx(BOB, 'contractor')).reviews.createFinal({ contractId: cId, rating: 3, body: 'Solid overall' })).toEqual({ ok: true })
+    const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })
+    expect(pub!.reviews.items.some((r) => r.kind === 'final')).toBe(true) // shown regardless of approval
+  })
+
+  it('the contractor cannot hide a final review', async () => {
+    const list = await call(ctx(ALICE, 'contractor')).reviews.list({ contractId: cId })
+    const final = list!.find((r) => r.kind === 'final')!
+    expect(await call(ctx(ALICE, 'contractor')).reviews.toggleApproval({ reviewId: final.id })).toEqual({ error: 'final_always_public' })
+  })
+
+  it('a non-participant cannot review; the boardRef provider path is forbidden on a native contract', async () => {
+    expect(await call(ctx(CAROL, 'contractor')).reviews.createFinal({ contractId: cId, rating: 1, body: 'nope' })).toEqual({ error: 'forbidden' })
+    expect(await call(SVC).reviews.provider.list({ contractRef: cId })).toEqual({ error: 'forbidden' }) // no boardRef
   })
 })

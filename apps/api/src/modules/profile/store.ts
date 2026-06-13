@@ -5,6 +5,7 @@
  */
 import { prisma, Prisma } from '@contractor/db'
 import { emit } from '../../events'
+import { publicReviews } from '../reviews/store'
 
 /** Docs an applicant must accept to finish onboarding (e-sign integration deferred — acknowledgement v1). */
 export const REQUIRED_DOCS = ['contractor-agreement'] as const
@@ -197,11 +198,14 @@ export async function listPublicSlugs(): Promise<Array<{ slug: string; updatedAt
 export async function getPublic(slug: string) {
   const p = await prisma.contractorProfile.findFirst({
     where: { publicSlug: slug.toLowerCase(), isPublic: true },
-    select: { displayName: true, company: true, position: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, blocks: true, contractsCompleted: true, hoursLogged: true },
+    select: { clerkUserId: true, displayName: true, company: true, position: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, blocks: true, contractsCompleted: true, hoursLogged: true },
   })
   if (!p) return null
   const ids = (p.categoryIds as unknown as string[]) ?? []
-  const cats = ids.length ? await prisma.skillCategory.findMany({ where: { id: { in: ids } }, select: { name: true } }) : []
+  const [cats, reviews] = await Promise.all([
+    ids.length ? prisma.skillCategory.findMany({ where: { id: { in: ids } }, select: { name: true } }) : Promise.resolve([]),
+    publicReviews(p.clerkUserId),
+  ])
   const links = (p.links as unknown as Link[]) ?? []
   return {
     displayName: p.displayName,
@@ -215,5 +219,6 @@ export async function getPublic(slug: string) {
     blocks: profileBlocks(p.blocks, links),
     contractsCompleted: p.contractsCompleted,
     hoursLogged: Number(p.hoursLogged),
+    reviews,
   }
 }

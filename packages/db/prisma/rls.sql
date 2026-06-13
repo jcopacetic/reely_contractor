@@ -472,3 +472,15 @@ drop policy if exists cd_party on cycle_dispute
 ;
 create policy cd_party on cycle_dispute for all using (billing_cycle_id in (select bc.id from billing_cycle bc join contract c on c.id = bc.contract_id where current_setting('app.actor_user', true) in (c.client_user_id, c.contractor_user_id)))
 ;
+
+-- reviews: a contract's participants read/write; the contractor manages their own; system/admin all. Backstop.
+alter table contractor_review enable row level security
+;
+drop policy if exists rv_admin on contractor_review
+;
+create policy rv_admin on contractor_review for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists rv_party on contractor_review
+;
+create policy rv_party on contractor_review for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
+;

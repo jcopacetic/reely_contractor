@@ -371,6 +371,15 @@ export async function startPayoutOnboardingAction(): Promise<{ url?: string; err
   }
 }
 
+/** The contractor approves/hides a WEEKLY review for their public profile (finals are always public). */
+export async function manageReviewAction(reviewId: string): Promise<{ ok?: true; approvedForDisplay?: boolean; error?: string }> {
+  try {
+    return await apiMutate<{ ok: true; approvedForDisplay: boolean }>('reviews.toggleApproval', { reviewId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 /** A participant contests a billing cycle (blocks its charge until an admin resolves). */
 export async function raiseCycleDisputeAction(billingCycleId: string, reason: string): Promise<{ ok?: true; error?: string }> {
   try {

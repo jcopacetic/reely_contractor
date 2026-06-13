@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { Briefcase, Clock, ExternalLink } from 'lucide-react'
+import { Briefcase, Clock, ExternalLink, Star } from 'lucide-react'
 import { apiQuery } from '@/lib/api'
 import { JsonLd } from '@/components/json-ld'
 import { buildMetadata, ogImage, profileLd } from '@/lib/seo'
@@ -22,6 +22,7 @@ type PublicProfile = {
   blocks: Block[]
   contractsCompleted: number
   hoursLogged: number
+  reviews: { avg: number; count: number; items: Array<{ id: string; kind: string; rating: number; body: string; authorLabel: string | null; createdAt: string }> }
 } | null
 
 const REVALIDATE = 3600
@@ -108,10 +109,32 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
         </div>
       )}
 
-      {/* Reviews — populated by the client-review system (coming). */}
+      {/* Reviews — every final review + the weekly reviews the contractor approved for display. */}
       <section className="mt-8">
-        <h2 className="mb-2 font-display text-sm font-semibold text-muted-foreground">Reviews</h2>
-        <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-center text-xs text-muted-foreground">No reviews yet — client reviews will appear here.</div>
+        <h2 className="mb-2 flex items-center justify-between font-display text-sm font-semibold text-muted-foreground">
+          <span>Reviews</span>
+          {p.reviews.count > 0 && (
+            <span className="inline-flex items-center gap-1 text-foreground"><Star className="size-3.5 fill-amber-400 text-amber-400" /> {p.reviews.avg.toFixed(1)} <span className="text-muted-foreground">({p.reviews.count})</span></span>
+          )}
+        </h2>
+        {p.reviews.count === 0 ? (
+          <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-center text-xs text-muted-foreground">No reviews yet — client reviews will appear here.</div>
+        ) : (
+          <ul className="space-y-2">
+            {p.reviews.items.map((r) => (
+              <li key={r.id} className="rounded-xl border border-border bg-card p-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex" aria-label={`${r.rating} of 5`}>
+                    {[1, 2, 3, 4, 5].map((i) => <Star key={i} className={`size-3.5 ${i <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/30'}`} />)}
+                  </span>
+                  {r.kind === 'final' && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Final</span>}
+                </div>
+                <p className="mt-1.5 whitespace-pre-line text-sm text-foreground/90">{r.body}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">— {r.authorLabel ?? 'Client'}</p>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <p className="mt-10 text-center text-[11px] text-muted-foreground">A Reely contractor · reely.io</p>

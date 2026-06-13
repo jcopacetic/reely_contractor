@@ -518,12 +518,41 @@ model Contract {
   items        ContractItem[]
   timeEntries  TimeEntry[]
   billingCycles BillingCycle[]
+  reviews      ContractorReview[]
 
   @@index([contractorUserId])
   @@index([clientUserId])
   @@index([status])
   @@index([boardRef])
   @@map("contract")
+}
+
+/// A client's review of the contractor on a contract. `weekly` reviews are private until the contractor
+/// APPROVES them for display; the `final` end-of-contract review is ALWAYS public (contractor can't suppress).
+/// The aggregate rating shown on the public profile is the displayed set (all final + approved weekly).
+model ContractorReview {
+  id                 String     @id @default(uuid()) @db.Uuid
+  contractId         String     @map("contract_id") @db.Uuid
+  contract           Contract   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  contractorUserId   String     @map("contractor_user_id") // denormalized for the public-profile query
+  authorRef          String     @map("author_ref") // the client — clientUserId (native) or boardRef (Board); opaque
+  authorLabel        String?    @map("author_label") // optional display label (e.g. the Board workspace name)
+  kind               ReviewKind
+  rating             Int // 1..5
+  body               String     @db.Text
+  weekOf             DateTime?  @map("week_of") // ISO week start for a weekly review; null for the final
+  approvedForDisplay Boolean    @default(false) @map("approved_for_display") // weekly opt-in; ignored for final (always shown)
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  @@unique([contractId, weekOf]) // one weekly per (contract, week); finals (null weekOf) are app-enforced single
+  @@index([contractorUserId])
+  @@map("contractor_review")
+}
+
+enum ReviewKind {
+  weekly
+  final
 }
 
 /// An expandable part of a contract (milestone / scope-add / deliverable / note). Inherits the contract's scope.

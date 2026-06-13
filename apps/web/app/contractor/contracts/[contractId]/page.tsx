@@ -4,6 +4,7 @@ import { apiQuery } from '@/lib/api'
 import { ContractDetail } from '@/components/contract-detail'
 import { TimePanel, type TimeSummary } from '@/components/time-panel'
 import { BillingPanel, type Cycle } from '@/components/billing-panel'
+import { ContractReviews, type Review } from '@/components/contract-reviews'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,10 +19,11 @@ const EMPTY_TIME: TimeSummary = { entries: [], approvedSeconds: 0, pendingSecond
 
 export default async function ContractDetailPage({ params }: { params: Promise<{ contractId: string }> }) {
   const { contractId } = await params
-  const [contract, time, cycles] = await Promise.all([
+  const [contract, time, cycles, reviews] = await Promise.all([
     apiQuery<Contract | null>('contracts.get', { contractId }).catch(() => null),
     apiQuery<TimeSummary | null>('time.listTime', { contractId }).catch(() => null),
     apiQuery<Cycle[] | null>('payments.cycles', { contractId }).catch(() => null),
+    apiQuery<Review[] | null>('reviews.list', { contractId }).catch(() => null),
   ])
   if (!contract) notFound()
   return (
@@ -32,6 +34,7 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
           <ContractDetail contract={contract} />
           <TimePanel contractId={contract.id} role={contract.role} rateType={contract.rateType} rateAmount={contract.rateAmount} active={contract.status === 'active'} initial={time ?? EMPTY_TIME} />
           <BillingPanel cycles={cycles ?? []} role={contract.role} />
+          <ContractReviews reviews={reviews ?? []} role={contract.role} />
         </div>
       </main>
     </>
