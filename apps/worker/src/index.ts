@@ -1,6 +1,8 @@
 import { Worker, type Job } from 'bullmq'
 import { CONTRACTOR_QUEUE, JOBS, connection } from './connection'
 import { processAchievements, shareWorkActivity } from './achievements'
+import { runBillingCycle } from './payments'
+import { registerSchedules } from './scheduler'
 
 const SERVICE = 'contractor-worker'
 
@@ -14,6 +16,11 @@ async function processJob(job: Job): Promise<void> {
       await processAchievements(job.data)
       await shareWorkActivity(job.data)
       return
+    case JOBS.billingCycle: {
+      const r = await runBillingCycle()
+      console.log(`billing-cycle: charged ${r.charged}, swept ${r.swept}`)
+      return
+    }
     default:
       throw new Error(`unknown job: ${job.name}`)
   }
@@ -23,6 +30,7 @@ async function main() {
   const worker = new Worker(CONTRACTOR_QUEUE, processJob, { connection, concurrency: 4 })
   worker.on('ready', () => console.log(`${SERVICE} ready on queue "${CONTRACTOR_QUEUE}"`))
   worker.on('failed', (job, err) => console.error(`job ${job?.name} failed:`, err.message))
+  await registerSchedules()
 
   const shutdown = async () => {
     await worker.close()

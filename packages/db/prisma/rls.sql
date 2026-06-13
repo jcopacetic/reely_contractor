@@ -416,3 +416,59 @@ drop policy if exists et_owner on extension_token
 ;
 create policy et_owner on extension_token for all using (contractor_user_id = current_setting('app.actor_user', true)) with check (contractor_user_id = current_setting('app.actor_user', true))
 ;
+
+-- payments: participants read; system/worker (webhook + cycle) writes. Backstop — app guards are the real boundary.
+alter table stripe_account enable row level security
+;
+drop policy if exists sa_admin on stripe_account
+;
+create policy sa_admin on stripe_account for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists sa_owner on stripe_account
+;
+create policy sa_owner on stripe_account for select using (contractor_user_id = current_setting('app.actor_user', true))
+;
+
+alter table billing_cycle enable row level security
+;
+drop policy if exists bc_admin on billing_cycle
+;
+create policy bc_admin on billing_cycle for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists bc_party on billing_cycle
+;
+create policy bc_party on billing_cycle for select using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
+;
+
+alter table charge enable row level security
+;
+drop policy if exists ch_admin on charge
+;
+create policy ch_admin on charge for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists ch_party on charge
+;
+create policy ch_party on charge for select using (current_setting('app.actor_user', true) in (client_user_id, contractor_user_id))
+;
+
+alter table payout enable row level security
+;
+drop policy if exists po_admin on payout
+;
+create policy po_admin on payout for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists po_owner on payout
+;
+create policy po_owner on payout for select using (contractor_user_id = current_setting('app.actor_user', true))
+;
+
+alter table cycle_dispute enable row level security
+;
+drop policy if exists cd_admin on cycle_dispute
+;
+create policy cd_admin on cycle_dispute for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists cd_party on cycle_dispute
+;
+create policy cd_party on cycle_dispute for all using (billing_cycle_id in (select bc.id from billing_cycle bc join contract c on c.id = bc.contract_id where current_setting('app.actor_user', true) in (c.client_user_id, c.contractor_user_id)))
+;

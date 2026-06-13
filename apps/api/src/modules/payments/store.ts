@@ -1,0 +1,204 @@
+/**
+ * payments store — the weekly billing engine. A `billing_cycle` per (contract, period) sweeps APPROVED, un-billed,
+ * un-disputed time; after the dispute window it charges the client + pays the contractor (net = gross − take_rate),
+ * platform-initiated, NOT escrow. Stripe is stubbed when unset (the cycle/charge/payout DB state is authoritative);
+ * in live mode the webhook flips charge→succeeded + opens the payout. Only approved time bills.
+ */
+import type Stripe from 'stripe'
+import { prisma } from '@contractor/db'
+import { emit } from '../../events'
+import { env } from '../../env'
+import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured } from '../../clients/stripe'
+
+export const DISPUTE_WINDOW_DAYS = 7
+const round2 = (n: number) => Math.round(n * 100) / 100
+const cents = (n: number) => Math.round(n * 100)
+
+// ── contractor Connect onboarding ───────────────────────────────────────────────────
+/** The contractor's payout (Connect) account status, or null if they haven't started onboarding. */
+export async function myPayoutAccount(contractorUserId: string) {
+  const a = await prisma.stripeAccount.findUnique({ where: { contractorUserId }, select: { stripeAccountId: true, chargesEnabled: true, payoutsEnabled: true, kycStatus: true } })
+  if (!a) return { connected: false as const, configured: stripeConfigured() }
+  return { connected: true as const, configured: stripeConfigured(), payoutsEnabled: a.payoutsEnabled, chargesEnabled: a.chargesEnabled, kycStatus: a.kycStatus }
+}
+
+/** Ensure a Connect Express account for the contractor + return an onboarding link to complete KYC. */
+export async function startOnboarding(contractorUserId: string): Promise<{ url: string }> {
+  let acct = await prisma.stripeAccount.findUnique({ where: { contractorUserId }, select: { stripeAccountId: true } })
+  if (!acct) {
+    const created = await createConnectAccount(contractorUserId)
+    acct = await prisma.stripeAccount.create({ data: { contractorUserId, stripeAccountId: created.accountId }, select: { stripeAccountId: true } })
+  }
+  return { url: await onboardingLink(acct.stripeAccountId) }
+}
+
+/** Refresh the contractor's Connect capabilities from Stripe (also reconciled by the webhook). */
+export async function refreshAccount(contractorUserId: string): Promise<void> {
+  const acct = await prisma.stripeAccount.findUnique({ where: { contractorUserId }, select: { stripeAccountId: true } })
+  if (!acct) return
+  const st = await accountStatus(acct.stripeAccountId)
+  await prisma.stripeAccount.update({ where: { contractorUserId }, data: { chargesEnabled: st.chargesEnabled, payoutsEnabled: st.payoutsEnabled, kycStatus: st.kyc } })
+}
+
+// ── the cycle: sweep approved time → charge after the window ──────────────────────────
+type CycleView = { id: string; periodStart: string; periodEnd: string; status: string; totalSeconds: number; totalAmount: number; takeRateAmount: number; disputeWindowEndsAt: string; chargedAt: string | null; chargeStatus: string | null; payoutStatus: string | null; openDispute: boolean }
+
+/** Sweep a contract's approved, un-billed, un-disputed time into the period's cycle (idempotent on contract+period). */
+export async function sweepCycle(contractId: string, periodStart: Date, periodEnd: Date): Promise<{ cycleId: string; totalSeconds: number } | null> {
+  const contract = await prisma.contract.findUnique({ where: { id: contractId }, select: { rateType: true, rateAmount: true, contractorUserId: true } })
+  if (!contract) return null
+  const unbilled = await prisma.timeEntry.findMany({ where: { contractId, approved: true, disputed: false, billingCycleId: null, endedAt: { not: null } }, select: { id: true } })
+  const existing = await prisma.billingCycle.findUnique({ where: { contractId_periodStart: { contractId, periodStart } }, select: { id: true, status: true } })
+  if (unbilled.length === 0 && !existing) return null
+  if (existing && (existing.status === 'charged' || existing.status === 'voided')) return null // already settled
+  // The dispute window opens when the cycle is presented (period end), not when the period started — so the
+  // client always gets the full 7 days to contest before the charge, regardless of when in the week we swept.
+  const cycle = existing ?? (await prisma.billingCycle.create({ data: { contractId, periodStart, periodEnd, status: 'dispute_window', disputeWindowEndsAt: new Date(periodEnd.getTime() + DISPUTE_WINDOW_DAYS * 86_400_000) }, select: { id: true, status: true } }))
+  if (unbilled.length) await prisma.timeEntry.updateMany({ where: { id: { in: unbilled.map((e) => e.id) } }, data: { billingCycleId: cycle.id } })
+  const agg = await prisma.timeEntry.aggregate({ where: { billingCycleId: cycle.id }, _sum: { durationSeconds: true } })
+  const totalSeconds = agg._sum.durationSeconds ?? 0
+  const rate = Number(contract.rateAmount)
+  const totalAmount = round2(contract.rateType === 'hourly' ? (totalSeconds / 3600) * rate : rate)
+  await prisma.billingCycle.update({ where: { id: cycle.id }, data: { totalSeconds, totalAmount, takeRateAmount: round2((totalAmount * env.PLATFORM_TAKE_RATE_PCT) / 100) } })
+  if (!existing) await emit('payments', 'cycle.opened', contract.contractorUserId, { contractId, cycleId: cycle.id }, 'system')
+  return { cycleId: cycle.id, totalSeconds }
+}
+
+/** Charge cycles past their dispute window with no open dispute + no disputed entry. Stub → settles synchronously. */
+export async function chargeDueCycles(now = new Date()): Promise<{ charged: number }> {
+  const due = await prisma.billingCycle.findMany({
+    where: { status: 'dispute_window', disputeWindowEndsAt: { lte: now }, charge: null, disputes: { none: { status: 'open' } }, entries: { none: { disputed: true } } },
+    select: { id: true, totalAmount: true, takeRateAmount: true, contract: { select: { clientUserId: true, contractorUserId: true } } },
+  })
+  let charged = 0
+  for (const c of due) {
+    const gross = Number(c.totalAmount)
+    if (gross <= 0) {
+      await prisma.billingCycle.update({ where: { id: c.id }, data: { status: 'voided' } })
+      continue
+    }
+    const take = Number(c.takeRateAmount)
+    const net = round2(gross - take)
+    const idempotencyKey = `cycle:${c.id}`
+    const pi = await chargeClient({ clientUserId: c.contract.clientUserId, amountCents: cents(gross), idempotencyKey, description: `Reely contractor work — cycle ${c.id}` })
+    const live = stripeConfigured()
+    const charge = await prisma.charge.create({
+      data: { billingCycleId: c.id, stripePaymentIntentId: pi.paymentIntentId, clientUserId: c.contract.clientUserId, contractorUserId: c.contract.contractorUserId, grossAmount: gross, takeRateAmount: take, netAmount: net, status: live ? 'pending' : 'succeeded', idempotencyKey, succeededAt: live ? null : new Date() },
+      select: { id: true },
+    })
+    if (!live) {
+      // Stub: no webhook to complete it, so settle the payout + cycle now.
+      const acct = await prisma.stripeAccount.findUnique({ where: { contractorUserId: c.contract.contractorUserId }, select: { stripeAccountId: true } })
+      const tr = await transferToContractor({ accountId: acct?.stripeAccountId ?? `acct_stub_${c.contract.contractorUserId}`, amountCents: cents(net), idempotencyKey })
+      await prisma.payout.create({ data: { chargeId: charge.id, stripeTransferId: tr.transferId, contractorUserId: c.contract.contractorUserId, amount: net, status: 'paid' } })
+      await prisma.billingCycle.update({ where: { id: c.id }, data: { status: 'charged', chargedAt: new Date() } })
+      await emit('payments', 'payment.charged', c.contract.contractorUserId, { cycleId: c.id, net }, 'system')
+    }
+    // Live: the charge row (pending) excludes the cycle from re-charging; the webhook flips it on payment_intent.succeeded.
+    charged++
+  }
+  return { charged }
+}
+
+// ── participant reads + cycle disputes ────────────────────────────────────────────────
+async function isParticipant(contractId: string, userId: string): Promise<boolean> {
+  const c = await prisma.contract.findUnique({ where: { id: contractId }, select: { clientUserId: true, contractorUserId: true } })
+  return !!c && (c.clientUserId === userId || c.contractorUserId === userId)
+}
+
+/** A contract's billing cycles (participant-gated) with charge/payout/dispute status. */
+export async function listCycles(viewerUserId: string, contractId: string): Promise<CycleView[] | null> {
+  if (!(await isParticipant(contractId, viewerUserId))) return null
+  const rows = await prisma.billingCycle.findMany({
+    where: { contractId },
+    orderBy: { periodStart: 'desc' },
+    take: 100,
+    select: { id: true, periodStart: true, periodEnd: true, status: true, totalSeconds: true, totalAmount: true, takeRateAmount: true, disputeWindowEndsAt: true, chargedAt: true, charge: { select: { status: true, payout: { select: { status: true } } } }, disputes: { where: { status: 'open' }, select: { id: true } } },
+  })
+  return rows.map((r) => ({
+    id: r.id,
+    periodStart: r.periodStart.toISOString(),
+    periodEnd: r.periodEnd.toISOString(),
+    status: r.status,
+    totalSeconds: r.totalSeconds,
+    totalAmount: Number(r.totalAmount),
+    takeRateAmount: Number(r.takeRateAmount),
+    disputeWindowEndsAt: r.disputeWindowEndsAt.toISOString(),
+    chargedAt: r.chargedAt ? r.chargedAt.toISOString() : null,
+    chargeStatus: r.charge?.status ?? null,
+    payoutStatus: r.charge?.payout?.status ?? null,
+    openDispute: r.disputes.length > 0,
+  }))
+}
+
+/** A participant raises a dispute on a cycle still in its window — blocks the charge until an admin resolves. */
+export async function raiseCycleDispute(userId: string, billingCycleId: string, reason: string): Promise<{ ok: true } | { error: string }> {
+  const cycle = await prisma.billingCycle.findUnique({ where: { id: billingCycleId }, select: { contractId: true, status: true } })
+  if (!cycle) return { error: 'not_found' }
+  if (!(await isParticipant(cycle.contractId, userId))) return { error: 'forbidden' }
+  if (cycle.status !== 'dispute_window' && cycle.status !== 'open') return { error: 'too_late' }
+  await prisma.cycleDispute.create({ data: { billingCycleId, raisedByUserId: userId, reason: reason.trim().slice(0, 2000) } })
+  await prisma.billingCycle.update({ where: { id: billingCycleId }, data: { status: 'disputed' } })
+  await emit('payments', 'dispute.opened', userId, { billingCycleId }, 'contractor')
+  return { ok: true }
+}
+
+/** An admin resolves a cycle dispute: allow the charge (back to the window) or void the cycle. */
+export async function resolveCycleDispute(disputeId: string, resolution: 'charge' | 'void', note?: string): Promise<{ ok: true } | { error: string }> {
+  const d = await prisma.cycleDispute.findUnique({ where: { id: disputeId }, select: { billingCycleId: true, status: true } })
+  if (!d) return { error: 'not_found' }
+  if (d.status !== 'open') return { error: 'already_resolved' }
+  await prisma.cycleDispute.update({ where: { id: disputeId }, data: { status: resolution === 'charge' ? 'resolved_charge' : 'resolved_void', resolutionNote: note?.trim().slice(0, 2000) || null, resolvedAt: new Date() } })
+  await prisma.billingCycle.update({ where: { id: d.billingCycleId }, data: { status: resolution === 'charge' ? 'dispute_window' : 'voided' } })
+  await emit('payments', 'dispute.resolved', 'system', { billingCycleId: d.billingCycleId, resolution }, 'system')
+  return { ok: true }
+}
+
+// ── webhook reconciliation (live mode) ────────────────────────────────────────────────
+/** Live-mode charge completion: flip the charge to succeeded, mark the cycle charged, then initiate the
+ *  contractor payout (transfer). Idempotent — a duplicate succeeded event is a no-op. */
+async function markChargeSucceeded(paymentIntentId: string): Promise<void> {
+  const charge = await prisma.charge.findFirst({ where: { stripePaymentIntentId: paymentIntentId }, select: { id: true, status: true, billingCycleId: true, contractorUserId: true, netAmount: true, idempotencyKey: true } })
+  if (!charge || charge.status === 'succeeded') return
+  await prisma.charge.update({ where: { id: charge.id }, data: { status: 'succeeded', succeededAt: new Date() } })
+  await prisma.billingCycle.update({ where: { id: charge.billingCycleId }, data: { status: 'charged', chargedAt: new Date() } })
+  const acct = await prisma.stripeAccount.findUnique({ where: { contractorUserId: charge.contractorUserId }, select: { stripeAccountId: true } })
+  const net = Number(charge.netAmount)
+  // The transfer to the connected account settles synchronously when created, so the payout is 'paid' at once.
+  const tr = await transferToContractor({ accountId: acct?.stripeAccountId ?? `acct_stub_${charge.contractorUserId}`, amountCents: cents(net), idempotencyKey: charge.idempotencyKey })
+  await prisma.payout.upsert({ where: { chargeId: charge.id }, update: {}, create: { chargeId: charge.id, stripeTransferId: tr.transferId, contractorUserId: charge.contractorUserId, amount: net, status: 'paid' } })
+  await emit('payments', 'payment.charged', charge.contractorUserId, { cycleId: charge.billingCycleId, net }, 'system')
+}
+
+/**
+ * Reconcile DB state from a SIGNATURE-VERIFIED Stripe event (the webhook verifies; this never sees raw input).
+ * NEVER initiates a charge — it only mirrors Stripe's truth onto our rows. Every branch is an idempotent update,
+ * so duplicate deliveries (Stripe's at-least-once) are safe without an event-id dedup table.
+ */
+export async function reconcileStripeEvent(event: Stripe.Event): Promise<void> {
+  switch (event.type) {
+    case 'account.updated': {
+      const a = event.data.object as Stripe.Account
+      await prisma.stripeAccount.updateMany({
+        where: { stripeAccountId: a.id },
+        data: { chargesEnabled: Boolean(a.charges_enabled), payoutsEnabled: Boolean(a.payouts_enabled), kycStatus: a.payouts_enabled ? 'verified' : a.requirements?.disabled_reason ? 'restricted' : 'pending' },
+      })
+      return
+    }
+    case 'payment_intent.succeeded':
+      await markChargeSucceeded((event.data.object as Stripe.PaymentIntent).id)
+      return
+    case 'payment_intent.payment_failed':
+      await prisma.charge.updateMany({ where: { stripePaymentIntentId: (event.data.object as Stripe.PaymentIntent).id, status: 'pending' }, data: { status: 'failed' } })
+      return
+    case 'charge.dispute.created': {
+      // A card-level chargeback — flag the charge so ops can void/refund downstream (no auto money movement here).
+      const pi = (event.data.object as Stripe.Dispute).payment_intent
+      const piId = typeof pi === 'string' ? pi : pi?.id
+      if (piId) await prisma.charge.updateMany({ where: { stripePaymentIntentId: piId }, data: { status: 'refunded' } })
+      return
+    }
+    default:
+      return // acknowledged (200) but not acted on
+  }
+}

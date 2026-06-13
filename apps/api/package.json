@@ -6,7 +6,8 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./router": "./src/trpc/router.ts"
+    "./router": "./src/trpc/router.ts",
+    "./payments": "./src/modules/payments/store.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -29,6 +30,7 @@
     "bullmq": "^5.34.5",
     "fastify": "^5.2.0",
     "ioredis": "^5.4.2",
+    "stripe": "^17.5.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

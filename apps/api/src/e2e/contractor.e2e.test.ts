@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { prisma } from '@contractor/db'
 import { appRouter } from '../trpc/router'
 import type { ApiContext, ActorRole } from '../trpc/trpc'
+import { sweepCycle, chargeDueCycles, listCycles, raiseCycleDispute, startOnboarding, myPayoutAccount } from '../modules/payments/store'
 
 /**
  * DB-backed security e2e — the contractor node's "definition of done" invariants against real Postgres,
@@ -52,6 +53,7 @@ afterAll(async () => {
   const users = [ALICE, BOB, CAROL, PAT, ADMIN]
   await prisma.room.deleteMany({ where: { OR: [{ participants: { some: { contractorUserId: { in: users } } } }, { tenantRef: TENANT }] } }) // cascades to participants/messages/reads
   await prisma.extensionToken.deleteMany({ where: { contractorUserId: { in: users } } })
+  await prisma.stripeAccount.deleteMany({ where: { contractorUserId: { in: users } } })
   await prisma.contractItem.deleteMany({ where: { contract: { OR: [{ clientUserId: { in: users } }, { contractorUserId: { in: users } }] } } })
   await prisma.contract.deleteMany({ where: { OR: [{ clientUserId: { in: users } }, { contractorUserId: { in: users } }] } }) // cascades time_entry → time_activity
   await prisma.post.deleteMany({ where: { authorUserId: { in: users } } })
@@ -264,8 +266,100 @@ describe('time disputes + verification', () => {
   })
 
   it('a billed entry refuses dispute and delete', async () => {
+    // billing_cycle_id now FKs billing_cycle (6_payments) — seed a real cycle for the entry to reference.
+    await prisma.billingCycle.create({ data: { id: BILLED_CYCLE, contractId, periodStart: new Date(Date.now() - 14 * 86_400_000), periodEnd: new Date(Date.now() - 7 * 86_400_000), status: 'charged', disputeWindowEndsAt: new Date(Date.now() - 7 * 86_400_000), chargedAt: new Date() } })
     const billed = await prisma.timeEntry.create({ data: { contractId, contractorUserId: BOB, startedAt: new Date(Date.now() - 1800_000), endedAt: new Date(), durationSeconds: 1800, source: 'timer', approved: true, approvedAt: new Date(), billingCycleId: BILLED_CYCLE } })
     expect(await call(ctx(ALICE, 'contractor')).time.dispute({ entryId: billed.id, reason: 'too late' })).toEqual({ error: 'already_billed' })
     expect(await call(ctx(BOB, 'contractor')).time.deleteEntry({ entryId: billed.id })).toEqual({ error: 'already_billed' })
+  })
+})
+
+/**
+ * Payments — the weekly billing engine (Stripe stubbed). The cycle sweeps APPROVED, un-billed time; only past the
+ * 7-day dispute window with no open dispute does it charge (stub → settles synchronously + pays out). Reads are
+ * participant-gated; dispute resolution is admin-only.
+ */
+describe('payments — billing engine', () => {
+  // A period whose dispute window is already in the past → eligible to charge as soon as it's swept.
+  const P_START = new Date('2026-05-03T18:00:00.000Z')
+  const P_END = new Date('2026-05-10T18:00:00.000Z') // window ends P_END + 7d = 2026-05-17, well before "now"
+  let contractId: string
+  let approvedA: string
+  let approvedB: string
+  let cycleId: string
+
+  beforeAll(async () => {
+    const c = await prisma.contract.create({ data: { clientUserId: ALICE, contractorUserId: BOB, title: 'Billable work', rateType: 'hourly', rateAmount: 100 } })
+    contractId = c.id
+    const mk = (approved: boolean) => prisma.timeEntry.create({ data: { contractId, contractorUserId: BOB, startedAt: P_START, endedAt: new Date(P_START.getTime() + 3600_000), durationSeconds: 3600, source: 'timer', approved, approvedAt: approved ? new Date() : null } })
+    approvedA = (await mk(true)).id
+    approvedB = (await mk(true)).id
+    await mk(false) // un-approved → must be excluded from the sweep
+  })
+
+  it('sweeps only approved, un-billed time, computes the amount, and stamps the cycle (idempotent)', async () => {
+    const r = await sweepCycle(contractId, P_START, P_END)
+    expect(r).toBeTruthy()
+    cycleId = r!.cycleId
+    expect(r!.totalSeconds).toBe(7200) // 2 approved × 1h; the un-approved entry excluded
+    const cycle = await prisma.billingCycle.findUniqueOrThrow({ where: { id: cycleId } })
+    expect(Number(cycle.totalAmount)).toBe(200) // 2h × $100
+    expect(cycle.status).toBe('dispute_window')
+    const stamped = await prisma.timeEntry.findMany({ where: { contractId, billingCycleId: cycleId }, select: { id: true } })
+    expect(stamped.map((e) => e.id).sort()).toEqual([approvedA, approvedB].sort())
+    // idempotent on (contract, period) — re-sweeping returns the same cycle, opens no second one.
+    const again = await sweepCycle(contractId, P_START, P_END)
+    expect(again!.cycleId).toBe(cycleId)
+    expect(await prisma.billingCycle.count({ where: { contractId } })).toBe(1)
+  })
+
+  it('cycle reads are participant-gated', async () => {
+    const asClient = await listCycles(ALICE, contractId)
+    const asContractor = await listCycles(BOB, contractId)
+    expect(asClient!.some((c) => c.id === cycleId)).toBe(true)
+    expect(asContractor!.some((c) => c.id === cycleId)).toBe(true)
+    expect(await listCycles(CAROL, contractId)).toBeNull() // non-participant
+  })
+
+  it('an open cycle dispute blocks the charge until an admin resolves it', async () => {
+    expect(await raiseCycleDispute(ALICE, cycleId, 'these hours look off')).toEqual({ ok: true })
+    expect((await prisma.billingCycle.findUniqueOrThrow({ where: { id: cycleId } })).status).toBe('disputed')
+    await chargeDueCycles(new Date()) // must NOT charge a disputed cycle
+    expect(await prisma.charge.findFirst({ where: { billingCycleId: cycleId } })).toBeNull()
+
+    // admin resolves toward charging → back into the (already-elapsed) window
+    const dispute = await prisma.cycleDispute.findFirstOrThrow({ where: { billingCycleId: cycleId } })
+    expect(await call(ctx(ADMIN, 'platform_admin')).payments.resolveDispute({ disputeId: dispute.id, resolution: 'charge' })).toEqual({ ok: true })
+    expect((await prisma.billingCycle.findUniqueOrThrow({ where: { id: cycleId } })).status).toBe('dispute_window')
+  })
+
+  it('charges a due cycle in stub mode: charge succeeded + payout paid + cycle charged', async () => {
+    const { charged } = await chargeDueCycles(new Date())
+    expect(charged).toBeGreaterThanOrEqual(1)
+    const charge = await prisma.charge.findFirstOrThrow({ where: { billingCycleId: cycleId } })
+    expect(Number(charge.grossAmount)).toBe(200)
+    expect(charge.status).toBe('succeeded') // stub settles synchronously
+    expect(charge.stripePaymentIntentId).toMatch(/^pi_stub_/)
+    const payout = await prisma.payout.findUniqueOrThrow({ where: { chargeId: charge.id } })
+    expect(payout.status).toBe('paid')
+    expect((await prisma.billingCycle.findUniqueOrThrow({ where: { id: cycleId } })).status).toBe('charged')
+  })
+
+  it('does not re-charge an already-charged cycle', async () => {
+    await chargeDueCycles(new Date())
+    expect(await prisma.charge.count({ where: { billingCycleId: cycleId } })).toBe(1)
+  })
+
+  it('Connect onboarding creates a (stub) payout account', async () => {
+    const { url } = await startOnboarding(BOB)
+    expect(url).toContain('/contractor/payouts')
+    const acct = await myPayoutAccount(BOB)
+    expect(acct.connected).toBe(true)
+    expect(acct.configured).toBe(false) // Stripe unset in tests → stub
+  })
+
+  it('payment reads require vetting; dispute resolution requires admin', async () => {
+    await expect(call(ctx(PAT, 'applicant')).payments.payoutAccount()).rejects.toThrow(/vetting required/)
+    await expect(call(ctx(BOB, 'contractor')).payments.resolveDispute({ disputeId: '00000000-0000-0000-0000-0000000000ff', resolution: 'void' })).rejects.toThrow(/platform_admin required/)
   })
 })

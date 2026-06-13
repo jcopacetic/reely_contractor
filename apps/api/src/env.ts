@@ -29,8 +29,13 @@ const EnvSchema = z.object({
   R2_ACCESS_KEY_ID: z.string().optional(),
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().optional(),
+  // Stripe Connect Express (payments). All optional → the client stubs (no-ops/synthetic ids) when unset, so
+  // the billing cycle runs end-to-end locally + in prod without real money. PLATFORM_TAKE_RATE_PCT defaults to 0.
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_CONNECT_CLIENT_ID: z.string().optional(),
+  PLATFORM_TAKE_RATE_PCT: z.coerce.number().min(0).max(100).default(0),
+  APP_BASE_URL: z.string().default('https://reely.io'), // for Connect onboarding return/refresh URLs
 })
 
 export const env = EnvSchema.parse(process.env)

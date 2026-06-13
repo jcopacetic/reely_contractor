@@ -4,6 +4,7 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify'
 import { env } from './env'
 import { appRouter } from './trpc/router'
 import { resolveApiContext, type ApiContext } from './trpc/trpc'
+import { registerStripe } from './webhooks/stripe'
 
 const SERVICE = 'contractor-api'
 
@@ -36,6 +37,8 @@ async function main() {
     prefix: '/trpc',
     trpcOptions: { router: appRouter, createContext },
   })
+
+  await registerStripe(app)
 
   app.get('/health', async () => ({ status: 'ok', node: 'contractor' }))
 

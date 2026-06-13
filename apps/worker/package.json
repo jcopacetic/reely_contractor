@@ -12,6 +12,7 @@
     "lint": "echo \"(no lint configured)\" && exit 0"
   },
   "dependencies": {
+    "@contractor/api": "workspace:*",
     "@contractor/db": "workspace:*",
     "bullmq": "^5.34.5",
     "ioredis": "^5.4.2"
