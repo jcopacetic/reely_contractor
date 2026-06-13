@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to a branch cancels the previous (still-running) CI for that branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: typecheck + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.2.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # pnpm 11.2.2 requires Node >=22.13
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate # prisma client (no DB needed) — required for typecheck + unit imports
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  e2e:
+    name: e2e (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: contractor
+          POSTGRES_PASSWORD: contractor
+          POSTGRES_DB: contractor
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U contractor"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://contractor:contractor@localhost:5432/contractor
+      DIRECT_URL: postgresql://contractor:contractor@localhost:5432/contractor
+      # No service/Clerk/Redis keys → the queue producer no-ops (best-effort) and the e2e drives the real
+      # tRPC procedures against Postgres only. The suite is the security-invariant gate.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.2.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm --filter @contractor/db exec prisma migrate deploy # apply 0_init + the delta to the fresh DB
+      # test:e2e loads ../../.env via dotenv-cli — materialize one from the job env.
+      - run: printf 'DATABASE_URL=%s\nDIRECT_URL=%s\n' "$DATABASE_URL" "$DIRECT_URL" > .env
+      - run: pnpm --filter @contractor/api test:e2e

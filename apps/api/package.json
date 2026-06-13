@@ -14,6 +14,9 @@
     "start:prod": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "dotenv -e ../../.env -- vitest run -c vitest.e2e.config.ts",
+    "coverage": "vitest run --coverage",
     "lint": "echo \"(no lint configured)\" && exit 0"
   },
   "dependencies": {
