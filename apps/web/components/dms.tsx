@@ -41,6 +41,30 @@ function Avatar({ name, url, work, className = 'size-9' }: { name: string; url: 
   return <span className={`${className} grid shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary`}>{initials(name)}</span>
 }
 
+function RoomGroup({ label, rooms, activeId, onSelect }: { label: string; rooms: Room[]; activeId: string | null; onSelect: (r: Room) => void }) {
+  if (rooms.length === 0) return null
+  return (
+    <div>
+      <div className="border-b border-border px-4 py-2 font-display text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      {rooms.map((r) => (
+        <button key={r.roomId} onClick={() => onSelect(r)} className={`flex w-full items-center gap-3 border-b border-border/60 px-4 py-3 text-left transition hover:bg-muted/50 ${activeId === r.roomId ? 'bg-muted/60' : ''}`}>
+          <Avatar name={r.title} url={r.avatarUrl} work={r.kind !== 'direct'} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-sm font-medium">{r.title}</span>
+              <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(r.lastActivityAt)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-xs text-muted-foreground">{r.lastMessage ? r.lastMessage.body : 'No messages yet'}</span>
+              {r.unread > 0 && <span className="grid size-4 shrink-0 place-items-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">{r.unread}</span>}
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** The chat inbox: a room list + the active conversation. `direct` rooms are peer DMs; `hire`/`team` rooms are
  *  org-labeled work chats with a client. Reads via server actions; polls the open room every 4s (Realtime is a
  *  later enhancement). Sends are optimistic. Opening a room marks it read (the store advances the read cursor). */
@@ -104,37 +128,16 @@ export function DmInbox({ initialRooms, initialActive, me }: { initialRooms: Roo
 
   return (
     <div className="grid h-[calc(100vh-8rem)] grid-cols-1 overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-[18rem_1fr]">
-      {/* Room list */}
-      <aside className={`flex flex-col border-border sm:border-r ${active ? 'hidden sm:flex' : 'flex'}`}>
-        <div className="border-b border-border px-4 py-3 font-display text-sm font-semibold">Messages</div>
-        <div className="flex-1 overflow-y-auto">
-          {rooms.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-muted-foreground">No conversations yet. Open a member's profile and hit Message to start one.</p>
-          ) : (
-            rooms.map((r) => (
-              <button
-                key={r.roomId}
-                onClick={() => select(r)}
-                className={`flex w-full items-center gap-3 border-b border-border/60 px-4 py-3 text-left transition hover:bg-muted/50 ${active?.roomId === r.roomId ? 'bg-muted/60' : ''}`}
-              >
-                <Avatar name={r.title} url={r.avatarUrl} work={r.kind !== 'direct'} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate text-sm font-medium">{r.title}</span>
-                      {r.kind !== 'direct' && <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium uppercase text-amber-700">{r.kind === 'team' ? 'Team' : 'Work'}</span>}
-                    </span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(r.lastActivityAt)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-xs text-muted-foreground">{r.lastMessage ? r.lastMessage.body : 'No messages yet'}</span>
-                    {r.unread > 0 && <span className="grid size-4 shrink-0 place-items-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">{r.unread}</span>}
-                  </div>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
+      {/* Room list — split into peer Messages (direct) and client Work (hire/team) */}
+      <aside className={`flex flex-col overflow-y-auto border-border sm:border-r ${active ? 'hidden sm:flex' : 'flex'}`}>
+        {rooms.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">No conversations yet. Open a member's profile and hit Message to start one.</p>
+        ) : (
+          <>
+            <RoomGroup label="Messages" rooms={rooms.filter((r) => r.kind === 'direct')} activeId={active?.roomId ?? null} onSelect={select} />
+            <RoomGroup label="Work" rooms={rooms.filter((r) => r.kind !== 'direct')} activeId={active?.roomId ?? null} onSelect={select} />
+          </>
+        )}
       </aside>
 
       {/* Conversation */}
