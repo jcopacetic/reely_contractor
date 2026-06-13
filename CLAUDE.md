@@ -68,6 +68,10 @@ railway (api/worker) · vercel (web) · supabase-postgres · sentry · posthog �
 - `pnpm install` then `pnpm infra:up` (docker Postgres `contractor` :5436 + Redis :6383).
 - `pnpm --filter @contractor/db migrate` then `… rls` then `… seed`. Clerk unset locally → a dev session powers
   the loop; Resend/R2/Stripe/Supabase clients no-op/stub when keys are unset.
+- **Migrate-managed (NOT `db push`).** Schema changes = a committed versioned migration: `pnpm --filter
+  @contractor/db migrate` writes + applies `prisma/migrations/<name>/migration.sql` (commit it). Apply to prod
+  by running that one `migration.sql` via the Supabase MCP (`mgjhsihzhltemvkssbbg`). `0_init` is the baseline
+  (the original schema) — NOT re-applied to the existing prod DB; only post-baseline migrations are.
 
 ## Definition of done (per module)
 Static harness assertions green (user-scope-isolation, vetting-gate, participant-scope, public-field discipline,

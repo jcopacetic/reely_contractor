@@ -188,7 +188,11 @@ model ContractorProfile {
   contractorIdentityId String  @unique @map("contractor_identity_id") @db.Uuid
   identity            ContractorIdentity @relation(fields: [contractorIdentityId], references: [id], onDelete: Cascade)
   clerkUserId         String   @unique @map("clerk_user_id") // denormalized for user-scoped RLS + author joins
-  displayName         String   @map("display_name") // public
+  firstName           String   @default("") @map("first_name") // the PERSON's identity (public). A profile is an individual, not a company.
+  lastName            String   @default("") @map("last_name") // (public)
+  displayName         String   @map("display_name") // public — DERIVED from first + last on save; what surfaces render
+  company             String?  @map("company") // optional ATTRIBUTE — where they work; never the account identity (public)
+  position            String?  @map("position") // optional attribute — their role/title (public)
   headline            String? // public
   bio                 String?  @db.Text // public
   categoryIds         Json     @default("[]") @map("category_ids") // skill_category ids; GIN; filter source; public labels
