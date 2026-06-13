@@ -355,33 +355,77 @@ model ContractorStats {
   @@map("contractor_stats")
 }
 
-/// General social DM thread (contractor ↔ contractor). 1:1; pair stored sorted (userA < userB).
-model DmThread {
+/// Chat rooms (generalizes the old 1:1 DM). A `direct` room is contractor↔contractor (the social club);
+/// `hire`/`team` rooms pair a tenant (an opaque Board org ref) with one or more contractors. Every message is
+/// sent by an individual; a tenant-side message carries `sender_tenant_ref` for "Name · Org" attribution.
+enum RoomKind {
+  direct
+  hire
+  team
+}
+
+enum RoomParticipantKind {
+  contractor
+  tenant
+}
+
+model Room {
   id            String    @id @default(uuid()) @db.Uuid
-  userAUserId   String    @map("user_a_user_id")
-  userBUserId   String    @map("user_b_user_id")
+  kind          RoomKind
+  tenantRef     String?   @map("tenant_ref") // opaque Board org ref (hire/team); REFERENCE, never an FK
+  boardRef      String?   @map("board_ref") // opaque work anchor (a contract/part); REFERENCE, never an FK
+  title         String? // org/team display label (set by Board for hire/team rooms)
+  createdBy     String    @map("created_by")
   lastMessageAt DateTime? @map("last_message_at")
   createdAt     DateTime  @default(now()) @map("created_at")
 
-  messages DmMessage[]
+  participants RoomParticipant[]
+  messages     RoomMessage[]
+  reads        RoomRead[]
 
-  @@unique([userAUserId, userBUserId])
-  @@index([userAUserId])
-  @@index([userBUserId])
-  @@map("dm_thread")
+  @@index([tenantRef])
+  @@map("room")
 }
 
-model DmMessage {
-  id           String   @id @default(uuid()) @db.Uuid
-  threadId     String   @map("thread_id") @db.Uuid
-  thread       DmThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  senderUserId String   @map("sender_user_id")
-  body         String   @db.Text
-  readAt       DateTime? @map("read_at")
-  createdAt    DateTime @default(now()) @map("created_at")
+model RoomParticipant {
+  id               String              @id @default(uuid()) @db.Uuid
+  roomId           String              @map("room_id") @db.Uuid
+  room             Room                @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  kind             RoomParticipantKind
+  contractorUserId String?             @map("contractor_user_id") // set when kind=contractor
+  tenantRef        String?             @map("tenant_ref") // set when kind=tenant (the org)
+  joinedAt         DateTime            @default(now()) @map("joined_at") // history floor (team join-gating)
+  leftAt           DateTime?           @map("left_at")
 
-  @@index([threadId])
-  @@map("dm_message")
+  @@unique([roomId, contractorUserId])
+  @@index([contractorUserId])
+  @@index([roomId])
+  @@map("room_participant")
+}
+
+model RoomMessage {
+  id              String   @id @default(uuid()) @db.Uuid
+  roomId          String   @map("room_id") @db.Uuid
+  room            Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  senderUserId    String   @map("sender_user_id") // the individual (a contractor or a tenant member)
+  senderTenantRef String?  @map("sender_tenant_ref") // set when sent by a tenant member → "Name · Org"
+  senderLabel     String?  @map("sender_label") // display name for tenant-member senders (Board provides it; contractor senders resolve via profile)
+  body            String   @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([roomId, createdAt])
+  @@map("room_message")
+}
+
+model RoomRead {
+  id         String   @id @default(uuid()) @db.Uuid
+  roomId     String   @map("room_id") @db.Uuid
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId     String   @map("user_id")
+  lastReadAt DateTime @map("last_read_at")
+
+  @@unique([roomId, userId])
+  @@map("room_read")
 }
 
 /// User-scoped notification (bell + email). Sole writer = the notifications module.

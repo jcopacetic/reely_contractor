@@ -15,6 +15,7 @@ const uid = (s: string) => `${RUN}:${s}`
 
 const ctx = (clerkUserId: string | undefined, role: ActorRole, serviceCaller = true): ApiContext => ({ clerkUserId, role, serviceCaller })
 const call = (c: ApiContext) => appRouter.createCaller(c)
+const SVC: ApiContext = { role: 'applicant', serviceCaller: true } // the Board provider (service key, no acting user)
 
 // the players
 const ALICE = uid('alice') // vetted contractor (public profile)
@@ -22,6 +23,7 @@ const BOB = uid('bob') // vetted contractor (non-public profile)
 const CAROL = uid('carol') // vetted contractor — the third-party non-participant
 const PAT = uid('pat') // applicant — NOT vetted
 const ADMIN = uid('admin') // platform_admin
+const TENANT = uid('acme-tenant') // an opaque Board org ref (for the provider chat tests)
 
 async function makeIdentity(clerkUserId: string, status: 'applicant' | 'vetted') {
   await prisma.contractorIdentity.create({ data: { clerkUserId, status, vettedAt: status === 'vetted' ? new Date() : null } })
@@ -48,8 +50,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const users = [ALICE, BOB, CAROL, PAT, ADMIN]
-  await prisma.dmMessage.deleteMany({ where: { senderUserId: { in: users } } })
-  await prisma.dmThread.deleteMany({ where: { OR: [{ userAUserId: { in: users } }, { userBUserId: { in: users } }] } })
+  await prisma.room.deleteMany({ where: { OR: [{ participants: { some: { contractorUserId: { in: users } } } }, { tenantRef: TENANT }] } }) // cascades to participants/messages/reads
   await prisma.contractItem.deleteMany({ where: { contract: { OR: [{ clientUserId: { in: users } }, { contractorUserId: { in: users } }] } } })
   await prisma.contract.deleteMany({ where: { OR: [{ clientUserId: { in: users } }, { contractorUserId: { in: users } }] } })
   await prisma.post.deleteMany({ where: { authorUserId: { in: users } } })
@@ -123,20 +124,51 @@ describe('participant-scope — contracts', () => {
   })
 })
 
-describe('participant-scope — DMs', () => {
-  let threadId: string
+describe('chat rooms — direct (contractor↔contractor)', () => {
+  let roomId: string
   beforeAll(async () => {
-    const opened = (await call(ctx(ALICE, 'contractor')).dm.open({ userId: BOB })) as { threadId: string }
-    threadId = opened.threadId
-    await call(ctx(ALICE, 'contractor')).dm.send({ threadId, body: 'hey bob' })
+    const opened = (await call(ctx(ALICE, 'contractor')).dm.open({ userId: BOB })) as { roomId: string }
+    roomId = opened.roomId
+    await call(ctx(ALICE, 'contractor')).dm.send({ roomId, body: 'hey bob' })
   })
-  it('a participant can read the thread', async () => {
-    const r = await call(ctx(BOB, 'contractor')).dm.messages({ threadId })
-    expect(r).not.toHaveProperty('error')
+  it('open is idempotent per the unordered pair', async () => {
+    const again = (await call(ctx(BOB, 'contractor')).dm.open({ userId: ALICE })) as { roomId: string }
+    expect(again.roomId).toBe(roomId)
   })
-  it('a non-participant is blocked', async () => {
-    const r = await call(ctx(CAROL, 'contractor')).dm.messages({ threadId })
-    expect(r).toHaveProperty('error')
+  it('a participant can read the room; a non-participant is blocked', async () => {
+    expect(await call(ctx(BOB, 'contractor')).dm.messages({ roomId })).not.toHaveProperty('error')
+    expect(await call(ctx(CAROL, 'contractor')).dm.messages({ roomId })).toHaveProperty('error')
+  })
+})
+
+describe('chat rooms — provider hire/team + tenant-ref gate + join-gating', () => {
+  let hireRoom: string
+  it('openHireRoom is idempotent per (tenant, contractor) and the contractor sees it', async () => {
+    const a = (await call(SVC).dm.provider.openHireRoom({ tenantRef: TENANT, orgLabel: 'Acme Corp', contractorUserId: ALICE })) as { roomId: string }
+    const b = (await call(SVC).dm.provider.openHireRoom({ tenantRef: TENANT, orgLabel: 'Acme Corp', contractorUserId: ALICE })) as { roomId: string }
+    expect(b.roomId).toBe(a.roomId)
+    hireRoom = a.roomId
+    const rooms = await call(ctx(ALICE, 'contractor')).dm.rooms()
+    expect(rooms.find((r) => r.roomId === hireRoom)?.title).toBe('Acme Corp') // contractor sees the org label
+  })
+  it('the wrong tenantRef cannot read the room', async () => {
+    expect(await call(SVC).dm.provider.listMessages({ tenantRef: uid('other-tenant'), roomId: hireRoom, userId: 'member-1' })).toEqual({ error: 'forbidden' })
+  })
+  it('a tenant member message is attributed Name·Org on the contractor side', async () => {
+    await call(SVC).dm.provider.send({ tenantRef: TENANT, roomId: hireRoom, senderUserId: 'member-1', senderLabel: 'Jane', body: 'hi alice' })
+    const r = (await call(ctx(ALICE, 'contractor')).dm.messages({ roomId: hireRoom })) as { messages: Array<{ fromTenant: boolean; senderLabel: string }> }
+    const tenantMsg = r.messages.find((m) => m.fromTenant)
+    expect(tenantMsg?.senderLabel).toBe('Jane')
+  })
+  it('a contractor added to a team room sees only post-join history (join-gated)', async () => {
+    const team = (await call(SVC).dm.provider.openTeamRoom({ tenantRef: TENANT, orgLabel: 'Acme Corp', contractorUserIds: [ALICE], title: 'Project X' })) as { roomId: string }
+    await call(ctx(ALICE, 'contractor')).dm.send({ roomId: team.roomId, body: 'before bob joins' })
+    await call(SVC).dm.provider.addParticipant({ tenantRef: TENANT, roomId: team.roomId, contractorUserId: BOB })
+    await call(ctx(ALICE, 'contractor')).dm.send({ roomId: team.roomId, body: 'after bob joins' })
+    const bobView = (await call(ctx(BOB, 'contractor')).dm.messages({ roomId: team.roomId })) as { messages: Array<{ body: string }> }
+    const bodies = bobView.messages.map((m) => m.body)
+    expect(bodies).toContain('after bob joins')
+    expect(bodies).not.toContain('before bob joins')
   })
 })
 

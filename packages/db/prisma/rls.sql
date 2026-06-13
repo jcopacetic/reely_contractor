@@ -223,30 +223,53 @@ drop policy if exists cs_read on contractor_stats
 create policy cs_read on contractor_stats for select using (current_setting('app.actor', true) = 'contractor')
 ;
 
--- dm_thread: the two participants only
-alter table dm_thread enable row level security
+-- room: a contractor participant of the room (the provider path runs as system). RLS is a backstop here —
+-- the module stores use the bare client + app-layer participant gates as the real boundary.
+alter table room enable row level security
 ;
+drop policy if exists room_admin on room
 ;
-drop policy if exists dt_admin on dm_thread
+create policy room_admin on room for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
 ;
-create policy dt_admin on dm_thread for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+drop policy if exists room_party on room
 ;
-drop policy if exists dt_party on dm_thread
-;
-create policy dt_party on dm_thread for all using (current_setting('app.actor_user', true) in (user_a_user_id, user_b_user_id)) with check (current_setting('app.actor_user', true) in (user_a_user_id, user_b_user_id))
+create policy room_party on room for all using (id in (select room_id from room_participant where kind = 'contractor' and contractor_user_id = current_setting('app.actor_user', true) and left_at is null)) with check (id in (select room_id from room_participant where kind = 'contractor' and contractor_user_id = current_setting('app.actor_user', true) and left_at is null))
 ;
 
--- dm_message: thread participants only
-alter table dm_message enable row level security
+-- room_participant: members of the same room
+alter table room_participant enable row level security
 ;
+drop policy if exists rp_admin on room_participant
 ;
-drop policy if exists dm_admin on dm_message
+create policy rp_admin on room_participant for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
 ;
-create policy dm_admin on dm_message for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+drop policy if exists rp_party on room_participant
 ;
-drop policy if exists dm_party on dm_message
+create policy rp_party on room_participant for all using (room_id in (select room_id from room_participant where kind = 'contractor' and contractor_user_id = current_setting('app.actor_user', true) and left_at is null)) with check (room_id in (select room_id from room_participant where kind = 'contractor' and contractor_user_id = current_setting('app.actor_user', true) and left_at is null))
 ;
-create policy dm_party on dm_message for all using (thread_id in (select id from dm_thread where current_setting('app.actor_user', true) in (user_a_user_id, user_b_user_id))) with check (thread_id in (select id from dm_thread where current_setting('app.actor_user', true) in (user_a_user_id, user_b_user_id)))
+
+-- room_message: members of the room
+alter table room_message enable row level security
+;
+drop policy if exists rm_admin on room_message
+;
+create policy rm_admin on room_message for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists rm_party on room_message
+;
+create policy rm_party on room_message for all using (room_id in (select room_id from room_participant where kind = 'contractor' and contractor_user_id = current_setting('app.actor_user', true) and left_at is null)) with check (room_id in (select room_id from room_participant where kind = 'contractor' and contractor_user_id = current_setting('app.actor_user', true) and left_at is null))
+;
+
+-- room_read: a user's own read cursors
+alter table room_read enable row level security
+;
+drop policy if exists rr_admin on room_read
+;
+create policy rr_admin on room_read for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists rr_own on room_read
+;
+create policy rr_own on room_read for all using (user_id = current_setting('app.actor_user', true)) with check (user_id = current_setting('app.actor_user', true))
 ;
 
 -- notification: recipient reads own; system writes

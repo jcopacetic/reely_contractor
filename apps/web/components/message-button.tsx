@@ -12,7 +12,7 @@ export function MessageButton({ userId }: { userId: string }) {
   function open() {
     start(async () => {
       const r = await openThreadAction(userId)
-      if (!('error' in r)) router.push(`/contractor/dms?t=${r.threadId}`)
+      if (!('error' in r)) router.push(`/contractor/dms?r=${r.roomId}`)
     })
   }
   return (

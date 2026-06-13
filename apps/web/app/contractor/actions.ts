@@ -132,30 +132,31 @@ export async function toggleFollowAction(userId: string): Promise<{ following: b
   }
 }
 
-// ── DMs ────────────────────────────────────────────────────────────────────────
+// ── Chat rooms ──────────────────────────────────────────────────────────────────
 type Participant = { userId: string; displayName: string; avatarUrl: string | null }
-type DmMessage = { id: string; body: string; fromMe: boolean; senderUserId: string; createdAt: string }
+type RoomMsg = { id: string; body: string; fromMe: boolean; senderUserId: string; senderLabel: string; fromTenant: boolean; createdAt: string }
+type Kind = 'direct' | 'hire' | 'team'
 
-/** Find or create the 1:1 thread with a contractor (used by the "Message" button on profiles). */
-export async function openThreadAction(userId: string): Promise<{ threadId: string; other: Participant } | { error: string }> {
+/** Find or create the direct (1:1) room with a contractor (the "Message" button on profiles). */
+export async function openThreadAction(userId: string): Promise<{ roomId: string; other: Participant } | { error: string }> {
   try {
-    return await apiMutate<{ threadId: string; other: Participant }>('dm.open', { userId })
+    return await apiMutate<{ roomId: string; other: Participant }>('dm.open', { userId })
   } catch (e) {
     return { error: (e as Error).message }
   }
 }
 
-export async function loadMessagesAction(threadId: string, before?: string): Promise<{ messages: DmMessage[]; other: Participant } | { error: string }> {
+export async function loadMessagesAction(roomId: string, before?: string): Promise<{ messages: RoomMsg[]; title: string; kind: Kind } | { error: string }> {
   try {
-    return await apiQuery<{ messages: DmMessage[]; other: Participant }>('dm.messages', { threadId, ...(before ? { before } : {}) })
+    return await apiQuery<{ messages: RoomMsg[]; title: string; kind: Kind }>('dm.messages', { roomId, ...(before ? { before } : {}) })
   } catch (e) {
     return { error: (e as Error).message }
   }
 }
 
-export async function sendDmAction(threadId: string, body: string): Promise<{ id: string } | { error: string }> {
+export async function sendDmAction(roomId: string, body: string): Promise<{ id: string } | { error: string }> {
   try {
-    return await apiMutate<{ id: string }>('dm.send', { threadId, body })
+    return await apiMutate<{ id: string }>('dm.send', { roomId, body })
   } catch (e) {
     return { error: (e as Error).message }
   }

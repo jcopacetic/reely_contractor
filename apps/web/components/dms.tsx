@@ -1,19 +1,21 @@
 'use client'
 
 import { useState, useTransition, useEffect, useRef } from 'react'
-import { Loader2, Send, MessagesSquare } from 'lucide-react'
+import { Loader2, Send, MessagesSquare, Briefcase } from 'lucide-react'
 import { loadMessagesAction, sendDmAction } from '@/app/contractor/actions'
 
-type Participant = { userId: string; displayName: string; avatarUrl: string | null }
-type DmMessage = { id: string; body: string; fromMe: boolean; senderUserId: string; createdAt: string }
-type Thread = {
-  threadId: string
-  other: Participant
-  lastMessage: { body: string; fromMe: boolean; createdAt: string } | null
+type Kind = 'direct' | 'hire' | 'team'
+type RoomMsg = { id: string; body: string; fromMe: boolean; senderUserId: string; senderLabel: string; fromTenant: boolean; createdAt: string }
+type Room = {
+  roomId: string
+  kind: Kind
+  title: string
+  avatarUrl: string | null
+  lastMessage: { body: string; createdAt: string } | null
   unread: number
   lastActivityAt: string
 }
-type ActiveConvo = { threadId: string; other: Participant; messages: DmMessage[] }
+type ActiveConvo = { roomId: string; kind: Kind; title: string; avatarUrl: string | null; messages: RoomMsg[] }
 type Me = { displayName: string; avatarUrl: string | null }
 
 function timeAgo(iso: string): string {
@@ -31,98 +33,102 @@ function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('') || '?'
 }
 
-function Avatar({ name, url, className = 'size-9' }: { name: string; url: string | null; className?: string }) {
+function Avatar({ name, url, work, className = 'size-9' }: { name: string; url: string | null; work?: boolean; className?: string }) {
   if (url)
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={url} alt="" className={`${className} shrink-0 rounded-full object-cover`} />
+  if (work) return <span className={`${className} grid shrink-0 place-items-center rounded-full bg-amber-500/15 text-amber-700`}><Briefcase className="size-4" /></span>
   return <span className={`${className} grid shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary`}>{initials(name)}</span>
 }
 
-/** The DM inbox: a thread list + the active conversation. Reads via server actions; polls the open thread
- *  every 4s for new messages (Realtime is a later enhancement). Sends are optimistic. */
-export function DmInbox({ initialThreads, initialActive, me }: { initialThreads: Thread[]; initialActive: ActiveConvo | null; me: Me }) {
-  const [threads, setThreads] = useState<Thread[]>(initialThreads)
+/** The chat inbox: a room list + the active conversation. `direct` rooms are peer DMs; `hire`/`team` rooms are
+ *  org-labeled work chats with a client. Reads via server actions; polls the open room every 4s (Realtime is a
+ *  later enhancement). Sends are optimistic. Opening a room marks it read (the store advances the read cursor). */
+export function DmInbox({ initialRooms, initialActive, me }: { initialRooms: Room[]; initialActive: ActiveConvo | null; me: Me }) {
+  void me
+  const [rooms, setRooms] = useState<Room[]>(initialRooms)
   const [active, setActive] = useState<ActiveConvo | null>(initialActive)
   const [loading, setLoading] = useState(false)
   const [draft, setDraft] = useState('')
   const [pending, start] = useTransition()
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // mark the initially-opened thread read in the local list
   useEffect(() => {
-    if (initialActive) setThreads((ts) => ts.map((t) => (t.threadId === initialActive.threadId ? { ...t, unread: 0 } : t)))
+    if (initialActive) setRooms((rs) => rs.map((r) => (r.roomId === initialActive.roomId ? { ...r, unread: 0 } : r)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [active?.messages.length, active?.threadId])
+  }, [active?.messages.length, active?.roomId])
 
-  // poll the open thread
   useEffect(() => {
     if (!active) return
-    const threadId = active.threadId
+    const roomId = active.roomId
     const id = setInterval(async () => {
-      const r = await loadMessagesAction(threadId)
-      if (!('error' in r)) setActive((a) => (a && a.threadId === threadId ? { ...a, messages: r.messages, other: r.other } : a))
+      const r = await loadMessagesAction(roomId)
+      if (!('error' in r)) setActive((a) => (a && a.roomId === roomId ? { ...a, messages: r.messages, title: r.title } : a))
     }, 4000)
     return () => clearInterval(id)
-  }, [active?.threadId])
+  }, [active?.roomId])
 
-  async function select(threadId: string) {
-    if (active?.threadId === threadId) return
+  async function select(room: Room) {
+    if (active?.roomId === room.roomId) return
     setLoading(true)
-    const r = await loadMessagesAction(threadId)
+    const r = await loadMessagesAction(room.roomId)
     setLoading(false)
     if ('error' in r) return
-    setActive({ threadId, other: r.other, messages: r.messages })
-    setThreads((ts) => ts.map((t) => (t.threadId === threadId ? { ...t, unread: 0 } : t)))
-    window.history.replaceState(null, '', `/contractor/dms?t=${threadId}`)
+    setActive({ roomId: room.roomId, kind: r.kind, title: r.title, avatarUrl: room.avatarUrl, messages: r.messages })
+    setRooms((rs) => rs.map((x) => (x.roomId === room.roomId ? { ...x, unread: 0 } : x)))
+    window.history.replaceState(null, '', `/contractor/dms?r=${room.roomId}`)
   }
 
   function send() {
     const body = draft.trim()
     if (!body || !active) return
-    const threadId = active.threadId
+    const roomId = active.roomId
     setDraft('')
-    const temp: DmMessage = { id: `tmp-${threadId}-${body.length}`, body, fromMe: true, senderUserId: '', createdAt: new Date().toISOString() }
-    setActive((a) => (a && a.threadId === threadId ? { ...a, messages: [...a.messages, temp] } : a))
-    setThreads((ts) => {
-      const t = ts.find((x) => x.threadId === threadId)
-      if (!t) return ts
-      return [{ ...t, lastMessage: { body, fromMe: true, createdAt: new Date().toISOString() }, lastActivityAt: new Date().toISOString() }, ...ts.filter((x) => x.threadId !== threadId)]
+    const temp: RoomMsg = { id: `tmp-${roomId}-${body.length}`, body, fromMe: true, senderUserId: '', senderLabel: '', fromTenant: false, createdAt: new Date().toISOString() }
+    setActive((a) => (a && a.roomId === roomId ? { ...a, messages: [...a.messages, temp] } : a))
+    setRooms((rs) => {
+      const r = rs.find((x) => x.roomId === roomId)
+      if (!r) return rs
+      return [{ ...r, lastMessage: { body, createdAt: new Date().toISOString() }, lastActivityAt: new Date().toISOString() }, ...rs.filter((x) => x.roomId !== roomId)]
     })
     start(async () => {
-      await sendDmAction(threadId, body)
-      const m = await loadMessagesAction(threadId)
-      if (!('error' in m)) setActive((a) => (a && a.threadId === threadId ? { ...a, messages: m.messages } : a))
+      await sendDmAction(roomId, body)
+      const m = await loadMessagesAction(roomId)
+      if (!('error' in m)) setActive((a) => (a && a.roomId === roomId ? { ...a, messages: m.messages } : a))
     })
   }
 
   return (
     <div className="grid h-[calc(100vh-8rem)] grid-cols-1 overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-[18rem_1fr]">
-      {/* Thread list */}
+      {/* Room list */}
       <aside className={`flex flex-col border-border sm:border-r ${active ? 'hidden sm:flex' : 'flex'}`}>
         <div className="border-b border-border px-4 py-3 font-display text-sm font-semibold">Messages</div>
         <div className="flex-1 overflow-y-auto">
-          {threads.length === 0 ? (
+          {rooms.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">No conversations yet. Open a member's profile and hit Message to start one.</p>
           ) : (
-            threads.map((t) => (
+            rooms.map((r) => (
               <button
-                key={t.threadId}
-                onClick={() => select(t.threadId)}
-                className={`flex w-full items-center gap-3 border-b border-border/60 px-4 py-3 text-left transition hover:bg-muted/50 ${active?.threadId === t.threadId ? 'bg-muted/60' : ''}`}
+                key={r.roomId}
+                onClick={() => select(r)}
+                className={`flex w-full items-center gap-3 border-b border-border/60 px-4 py-3 text-left transition hover:bg-muted/50 ${active?.roomId === r.roomId ? 'bg-muted/60' : ''}`}
               >
-                <Avatar name={t.other.displayName} url={t.other.avatarUrl} />
+                <Avatar name={r.title} url={r.avatarUrl} work={r.kind !== 'direct'} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium">{t.other.displayName}</span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(t.lastActivityAt)}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate text-sm font-medium">{r.title}</span>
+                      {r.kind !== 'direct' && <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium uppercase text-amber-700">{r.kind === 'team' ? 'Team' : 'Work'}</span>}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(r.lastActivityAt)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-xs text-muted-foreground">{t.lastMessage ? `${t.lastMessage.fromMe ? 'You: ' : ''}${t.lastMessage.body}` : 'No messages yet'}</span>
-                    {t.unread > 0 && <span className="grid size-4 shrink-0 place-items-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">{t.unread}</span>}
+                    <span className="truncate text-xs text-muted-foreground">{r.lastMessage ? r.lastMessage.body : 'No messages yet'}</span>
+                    {r.unread > 0 && <span className="grid size-4 shrink-0 place-items-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">{r.unread}</span>}
                   </div>
                 </div>
               </button>
@@ -144,14 +150,16 @@ export function DmInbox({ initialThreads, initialActive, me }: { initialThreads:
           <>
             <header className="flex items-center gap-3 border-b border-border px-4 py-3">
               <button onClick={() => { setActive(null); window.history.replaceState(null, '', '/contractor/dms') }} className="text-sm text-muted-foreground sm:hidden">←</button>
-              <Avatar name={active.other.displayName} url={active.other.avatarUrl} className="size-8" />
-              <a href={`/contractor/u/${active.other.userId}`} className="font-display text-sm font-semibold hover:text-primary">{active.other.displayName}</a>
+              <Avatar name={active.title} url={active.avatarUrl} work={active.kind !== 'direct'} className="size-8" />
+              <span className="font-display text-sm font-semibold">{active.title}</span>
+              {active.kind !== 'direct' && <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium uppercase text-amber-700">{active.kind === 'team' ? 'Team' : 'Work'}</span>}
             </header>
             <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
               {active.messages.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">Say hello 👋</p>}
               {active.messages.map((m) => (
                 <div key={m.id} className={`flex ${m.fromMe ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${m.fromMe ? 'rounded-br-sm bg-primary text-primary-foreground' : 'rounded-bl-sm bg-muted'}`}>
+                    {!m.fromMe && active.kind !== 'direct' && <p className="mb-0.5 text-[11px] font-medium text-foreground/70">{m.senderLabel}{m.fromTenant && active.title !== m.senderLabel ? ` · ${active.title}` : ''}</p>}
                     <p className="whitespace-pre-wrap break-words">{m.body}</p>
                     <p className={`mt-0.5 text-[10px] ${m.fromMe ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>{timeAgo(m.createdAt)}</p>
                   </div>
