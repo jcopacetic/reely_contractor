@@ -511,12 +511,16 @@ model TimeEntry {
   source           TimeSource @default(timer)
   approved         Boolean    @default(false) // client approval; only approved time bills
   approvedAt       DateTime?  @map("approved_at")
+  disputed         Boolean    @default(false) // client contests the entry; contested time can't bill until resolved
+  disputeReason    String?    @map("dispute_reason") @db.Text // why the client disputed it
+  disputedAt       DateTime?  @map("disputed_at")
   billingCycleId   String?    @map("billing_cycle_id") @db.Uuid // set when swept into a cycle (payments slice)
   createdAt        DateTime   @default(now()) @map("created_at")
 
   @@index([contractId])
   @@index([contractorUserId])
   @@index([contractId, approved])
+  @@index([disputed])
   @@map("time_entry")
 }
 

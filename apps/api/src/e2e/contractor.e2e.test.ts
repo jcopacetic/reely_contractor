@@ -153,3 +153,56 @@ describe('user-scope-isolation', () => {
     expect(own.profile?.displayName).toBe('Bob Baker')
   })
 })
+
+describe('time disputes + verification', () => {
+  // ALICE = client (contract owner), BOB = contractor (owner of the time), CAROL = unrelated third party.
+  const BILLED_CYCLE = '00000000-0000-0000-0000-0000000000aa'
+  let contractId: string
+  let manualEntry: string
+  let timerEntry: string
+  beforeAll(async () => {
+    const c = await prisma.contract.create({ data: { clientUserId: ALICE, contractorUserId: BOB, title: 'Time work', rateType: 'hourly', rateAmount: 100 } })
+    contractId = c.id
+    const m = await prisma.timeEntry.create({ data: { contractId, contractorUserId: BOB, startedAt: new Date(Date.now() - 7200_000), endedAt: new Date(Date.now() - 3600_000), durationSeconds: 3600, source: 'manual' } })
+    manualEntry = m.id
+    const t = await prisma.timeEntry.create({ data: { contractId, contractorUserId: BOB, startedAt: new Date(Date.now() - 3600_000), endedAt: new Date(), durationSeconds: 3600, source: 'timer' } })
+    timerEntry = t.id
+  })
+
+  it('flags manual entries unverified and timer entries verified', async () => {
+    const sum = await call(ctx(ALICE, 'contractor')).time.listTime({ contractId })
+    const byId = Object.fromEntries(sum!.entries.map((e) => [e.id, e]))
+    expect(byId[manualEntry]!.verified).toBe(false)
+    expect(byId[timerEntry]!.verified).toBe(true)
+  })
+
+  it('the client can dispute an entry; a non-participant cannot', async () => {
+    expect(await call(ctx(ALICE, 'contractor')).time.dispute({ entryId: manualEntry, reason: 'hours look high' })).toEqual({ ok: true })
+    const sum = await call(ctx(ALICE, 'contractor')).time.listTime({ contractId })
+    const e = sum!.entries.find((x) => x.id === manualEntry)!
+    expect(e.disputed).toBe(true)
+    expect(e.disputeReason).toBe('hours look high')
+    expect(sum!.disputedSeconds).toBe(3600)
+    expect(await call(ctx(CAROL, 'contractor')).time.dispute({ entryId: timerEntry, reason: 'nope' })).toEqual({ error: 'forbidden' })
+  })
+
+  it('approving a disputed entry clears the dispute and makes it billable', async () => {
+    expect(await call(ctx(ALICE, 'contractor')).time.approve({ entryId: manualEntry })).toEqual({ ok: true })
+    const e = (await call(ctx(ALICE, 'contractor')).time.listTime({ contractId }))!.entries.find((x) => x.id === manualEntry)!
+    expect(e.disputed).toBe(false)
+    expect(e.approved).toBe(true)
+  })
+
+  it('the contractor can delete own tracked time; a non-owner cannot', async () => {
+    expect(await call(ctx(ALICE, 'contractor')).time.deleteEntry({ entryId: timerEntry })).toEqual({ error: 'forbidden' }) // ALICE is the client, not the owner
+    expect(await call(ctx(BOB, 'contractor')).time.deleteEntry({ entryId: timerEntry })).toEqual({ ok: true })
+    const sum = await call(ctx(BOB, 'contractor')).time.listTime({ contractId })
+    expect(sum!.entries.find((x) => x.id === timerEntry)).toBeUndefined()
+  })
+
+  it('a billed entry refuses dispute and delete', async () => {
+    const billed = await prisma.timeEntry.create({ data: { contractId, contractorUserId: BOB, startedAt: new Date(Date.now() - 1800_000), endedAt: new Date(), durationSeconds: 1800, source: 'timer', approved: true, approvedAt: new Date(), billingCycleId: BILLED_CYCLE } })
+    expect(await call(ctx(ALICE, 'contractor')).time.dispute({ entryId: billed.id, reason: 'too late' })).toEqual({ error: 'already_billed' })
+    expect(await call(ctx(BOB, 'contractor')).time.deleteEntry({ entryId: billed.id })).toEqual({ error: 'already_billed' })
+  })
+})

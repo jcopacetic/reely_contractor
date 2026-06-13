@@ -25,18 +25,24 @@ export type TimeEntryView = {
   durationSeconds: number
   description: string | null
   source: TimeSource
+  /** verified = tracked by the timer/extension (activity-backed); manual entries are unverified. */
+  verified: boolean
   approved: boolean
   approvedAt: string | null
+  disputed: boolean
+  disputeReason: string | null
+  disputedAt: string | null
   running: boolean
 }
 export type TimeSummary = {
   entries: TimeEntryView[]
   approvedSeconds: number // billable
-  pendingSeconds: number // logged, awaiting approval
+  pendingSeconds: number // logged, awaiting approval (not disputed)
+  disputedSeconds: number // contested by the client; won't bill until resolved
   runningEntryId: string | null
 }
 
-type Row = { id: string; contractId: string; contractorUserId: string; startedAt: Date; endedAt: Date | null; durationSeconds: number; description: string | null; source: string; approved: boolean; approvedAt: Date | null }
+type Row = { id: string; contractId: string; contractorUserId: string; startedAt: Date; endedAt: Date | null; durationSeconds: number; description: string | null; source: string; approved: boolean; approvedAt: Date | null; disputed: boolean; disputeReason: string | null; disputedAt: Date | null }
 const toView = (e: Row): TimeEntryView => ({
   id: e.id,
   contractId: e.contractId,
@@ -46,8 +52,12 @@ const toView = (e: Row): TimeEntryView => ({
   durationSeconds: e.durationSeconds,
   description: e.description,
   source: e.source as TimeSource,
+  verified: e.source !== 'manual', // timer/extension are activity-backed; manual is self-reported
   approved: e.approved,
   approvedAt: e.approvedAt ? e.approvedAt.toISOString() : null,
+  disputed: e.disputed,
+  disputeReason: e.disputeReason,
+  disputedAt: e.disputedAt ? e.disputedAt.toISOString() : null,
   running: e.endedAt === null,
 })
 
@@ -127,13 +137,15 @@ function summarize(rows: Row[]): TimeSummary {
   const entries = rows.map(toView)
   let approvedSeconds = 0
   let pendingSeconds = 0
+  let disputedSeconds = 0
   let runningEntryId: string | null = null
   for (const e of entries) {
     if (e.running) runningEntryId = e.id
     else if (e.approved) approvedSeconds += e.durationSeconds
+    else if (e.disputed) disputedSeconds += e.durationSeconds
     else pendingSeconds += e.durationSeconds
   }
-  return { entries, approvedSeconds, pendingSeconds, runningEntryId }
+  return { entries, approvedSeconds, pendingSeconds, disputedSeconds, runningEntryId }
 }
 
 /** A contract's entries + summary — participant only (client or contractor). null otherwise (→ 404). */
@@ -159,8 +171,47 @@ export async function approve(clientUserId: string, entryId: string): Promise<{ 
   if (e.contract.clientUserId !== clientUserId) return { error: 'forbidden' }
   if (e.endedAt === null) return { error: 'still_running' } // can't approve an open timer
   if (e.approved) return { ok: true }
-  await prisma.timeEntry.update({ where: { id: entryId }, data: { approved: true, approvedAt: new Date() } })
+  // Approving resolves any open dispute in the contractor's favour.
+  await prisma.timeEntry.update({ where: { id: entryId }, data: { approved: true, approvedAt: new Date(), disputed: false, disputeReason: null, disputedAt: null } })
   await emit('time', 'time_entry.approved', clientUserId, { contractId: e.contractId, entryId }, 'client')
+  return { ok: true }
+}
+
+/**
+ * Dispute an entry — only the contract's CLIENT. Contests the entry (won't bill until resolved); does not
+ * delete it. Refuses a running entry or one already swept into a billing cycle. Resolution = the client
+ * approves (clears it) or withdraws, or the contractor concedes by deleting it.
+ */
+export async function dispute(clientUserId: string, entryId: string, reason: string): Promise<{ ok: true } | { error: string }> {
+  const e = await prisma.timeEntry.findUnique({ where: { id: entryId }, select: { id: true, contractId: true, endedAt: true, billingCycleId: true, contract: { select: { clientUserId: true } } } })
+  if (!e) return { error: 'not_found' }
+  if (e.contract.clientUserId !== clientUserId) return { error: 'forbidden' }
+  if (e.endedAt === null) return { error: 'still_running' }
+  if (e.billingCycleId) return { error: 'already_billed' }
+  await prisma.timeEntry.update({ where: { id: entryId }, data: { disputed: true, disputeReason: reason.trim().slice(0, 2000) || null, disputedAt: new Date(), approved: false, approvedAt: null } })
+  await emit('time', 'time_entry.disputed', clientUserId, { contractId: e.contractId, entryId }, 'client')
+  return { ok: true }
+}
+
+/** Withdraw a dispute (client changed their mind) — back to pending, not approved. Client-only. */
+export async function withdrawDispute(clientUserId: string, entryId: string): Promise<{ ok: true } | { error: string }> {
+  const e = await prisma.timeEntry.findUnique({ where: { id: entryId }, select: { contract: { select: { clientUserId: true } } } })
+  if (!e) return { error: 'not_found' }
+  if (e.contract.clientUserId !== clientUserId) return { error: 'forbidden' }
+  await prisma.timeEntry.update({ where: { id: entryId }, data: { disputed: false, disputeReason: null, disputedAt: null } })
+  return { ok: true }
+}
+
+/**
+ * Delete a tracked entry — the contractor (owner) only, and only while un-billed. Serves both "remove time I
+ * logged" and conceding a dispute (the contractor agrees and drops the entry). A billed entry is immutable.
+ */
+export async function deleteEntry(contractorUserId: string, entryId: string): Promise<{ ok: true } | { error: string }> {
+  const e = await prisma.timeEntry.findUnique({ where: { id: entryId }, select: { contractorUserId: true, billingCycleId: true } })
+  if (!e) return { error: 'not_found' }
+  if (e.contractorUserId !== contractorUserId) return { error: 'forbidden' }
+  if (e.billingCycleId) return { error: 'already_billed' }
+  await prisma.timeEntry.delete({ where: { id: entryId } })
   return { ok: true }
 }
 
@@ -191,7 +242,19 @@ export async function providerApprove(contractRef: string, entryId: string): Pro
   if (!e.contract.boardRef) return { error: 'forbidden' }
   if (e.endedAt === null) return { error: 'still_running' }
   if (e.approved) return { ok: true }
-  await prisma.timeEntry.update({ where: { id: entryId }, data: { approved: true, approvedAt: new Date() } })
+  await prisma.timeEntry.update({ where: { id: entryId }, data: { approved: true, approvedAt: new Date(), disputed: false, disputeReason: null, disputedAt: null } })
   await emit('time', 'time_entry.approved', e.contract.clientUserId, { contractId: contractRef, entryId, via: 'board' }, 'client')
+  return { ok: true }
+}
+
+/** Board (the client) disputes an entry. Scoped to the named Board-originated contract. */
+export async function providerDispute(contractRef: string, entryId: string, reason: string): Promise<{ ok: true } | { error: string }> {
+  const e = await prisma.timeEntry.findUnique({ where: { id: entryId }, select: { contractId: true, endedAt: true, billingCycleId: true, contract: { select: { boardRef: true, clientUserId: true } } } })
+  if (!e || e.contractId !== contractRef) return { error: 'not_found' }
+  if (!e.contract.boardRef) return { error: 'forbidden' }
+  if (e.endedAt === null) return { error: 'still_running' }
+  if (e.billingCycleId) return { error: 'already_billed' }
+  await prisma.timeEntry.update({ where: { id: entryId }, data: { disputed: true, disputeReason: reason.trim().slice(0, 2000) || null, disputedAt: new Date(), approved: false, approvedAt: null } })
+  await emit('time', 'time_entry.disputed', e.contract.clientUserId, { contractId: contractRef, entryId, via: 'board' }, 'client')
   return { ok: true }
 }

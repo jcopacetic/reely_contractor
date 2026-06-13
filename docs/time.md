@@ -13,11 +13,22 @@ Owns `time_entry` (and ONLY this). **Native** procedures (`router.ts`, all vette
   `MIN_ENTRY_SECONDS` (60) too-short and >12h too-long entries; emits `time_entry.created`.
 - **`getRunning`** — the contractor's currently-running entry across all their contracts (drives the timer UI).
 - **`listTime`** — a contract's entries + summary (approved/pending/running seconds), participant-scoped.
-- **`approve` / `unapprove`** — **client-only**; approving makes an entry billable (idempotent); emits
-  `time_entry.approved`. `unapprove` refuses once the entry has been swept into a billing cycle (`already_billed`).
+- **`approve` / `unapprove`** — **client-only**; approving makes an entry billable (idempotent) and clears any
+  open dispute; emits `time_entry.approved`. `unapprove` refuses once the entry has been swept into a billing
+  cycle (`already_billed`).
+- **`dispute` / `withdrawDispute`** — **client-only**; `dispute(entryId, reason)` contests an entry (sets
+  `disputed` + `dispute_reason` + `disputed_at`, un-approves it so it can't bill until resolved; emits
+  `time_entry.disputed`). Refuses a running or already-billed entry. `withdrawDispute` clears it back to pending.
+  Resolution = the client approves (clears it) or withdraws, or the contractor concedes by deleting.
+- **`deleteEntry`** — **contractor-only**; deletes own tracked time while un-billed (the owner "removes time I
+  logged", and how a contractor concedes a dispute). A billed entry is immutable (`already_billed`).
 
-**Provider** sub-router (`time.provider.*`, serviceProcedure): `listTime` + `approve` for a Board-originated
-contract (Board, as the client, approves an entry).
+**Verification:** every entry view carries `verified` = `source !== 'manual'` — timer/extension entries are
+activity-backed (verified); **manual entries are unverified** and are the natural dispute target. The summary
+splits seconds into `approvedSeconds` (billable) / `disputedSeconds` (contested) / `pendingSeconds`.
+
+**Provider** sub-router (`time.provider.*`, serviceProcedure): `listTime` + `approve` + `dispute` for a
+Board-originated contract (Board, as the client, reads/approves/disputes an entry).
 
 ## Files
 - `apps/api/src/modules/time/router.ts` — native (vetted) + provider (service-key) surfaces.
@@ -33,9 +44,10 @@ bare `prisma` client (not `withUser`), so the app-layer participant + role + pro
 real, verified boundary; RLS is a defined backstop to be wired later.
 
 ## Verified
-`pnpm typecheck` 5/5 · `pnpm test` (unit) 9/9 · `pnpm --filter @contractor/api test:e2e` 14/14 (incl. the
-contractor-writes / client-approves participant invariants). Prisma Migrate-managed (`0_init` + `1_add_...`);
-prod applied via Supabase MCP.
+`pnpm typecheck` 5/5 · `pnpm test` (unit) 9/9 · `pnpm --filter @contractor/api test:e2e` 19/19 (incl. the
+contractor-writes / client-approves participant invariants + dispute/verify/delete: client disputes, non-client
+can't, approve clears dispute, contractor deletes own un-billed time, billed entries refuse both). Prisma
+Migrate-managed (`0_init` + `1_add_...` + `2_add_time_dispute`); prod applied via Supabase MCP.
 
 ## Out of scope
 The weekly billing cycle + Stripe charges (Phase 2 — platform-initiated after the dispute window; the
