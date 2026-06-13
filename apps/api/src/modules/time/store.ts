@@ -35,6 +35,8 @@ export type TimeEntryView = {
   disputeReason: string | null
   disputedAt: string | null
   running: boolean
+  activitySamples: number // plugin-timer evidence captured for this entry
+  avgActivityPct: number | null // average activity level across the samples
 }
 export type TimeSummary = {
   entries: TimeEntryView[]
@@ -61,6 +63,8 @@ const toView = (e: Row): TimeEntryView => ({
   disputeReason: e.disputeReason,
   disputedAt: e.disputedAt ? e.disputedAt.toISOString() : null,
   running: e.endedAt === null,
+  activitySamples: 0,
+  avgActivityPct: null,
 })
 
 // ── scope helpers ─────────────────────────────────────────────────────────────────
@@ -135,8 +139,20 @@ export async function manualEntry(
 }
 
 // ── reads (participant-scoped) ──────────────────────────────────────────────────────
-function summarize(rows: Row[]): TimeSummary {
+async function summarize(rows: Row[]): Promise<TimeSummary> {
   const entries = rows.map(toView)
+  // enrich each entry with its plugin-timer activity (one groupBy over time_activity)
+  if (entries.length > 0) {
+    const grp = await prisma.timeActivity.groupBy({ by: ['timeEntryId'], where: { timeEntryId: { in: entries.map((e) => e.id) } }, _count: { _all: true }, _avg: { activityPct: true } })
+    const byId = new Map(grp.map((g) => [g.timeEntryId, g]))
+    for (const e of entries) {
+      const g = byId.get(e.id)
+      if (g) {
+        e.activitySamples = g._count._all
+        e.avgActivityPct = g._avg.activityPct != null ? Math.round(g._avg.activityPct) : null
+      }
+    }
+  }
   let approvedSeconds = 0
   let pendingSeconds = 0
   let disputedSeconds = 0

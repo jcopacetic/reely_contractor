@@ -2,11 +2,12 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, Play, Square, Trash2, Plus, Check, Clock, ShieldCheck, ShieldAlert, Flag } from 'lucide-react'
-import { startTimerAction, stopTimerAction, cancelTimerAction, addManualTimeAction, approveTimeAction, unapproveTimeAction, disputeTimeAction, withdrawDisputeAction, deleteTimeAction } from '@/app/contractor/actions'
+import { Loader2, Play, Square, Trash2, Plus, Check, Clock, ShieldCheck, ShieldAlert, Flag, Activity } from 'lucide-react'
+import { startTimerAction, stopTimerAction, cancelTimerAction, addManualTimeAction, approveTimeAction, unapproveTimeAction, disputeTimeAction, withdrawDisputeAction, deleteTimeAction, loadEvidenceAction } from '@/app/contractor/actions'
 
 type Source = 'timer' | 'extension' | 'manual'
-type Entry = { id: string; startedAt: string; endedAt: string | null; durationSeconds: number; description: string | null; source: Source; verified: boolean; approved: boolean; approvedAt: string | null; disputed: boolean; disputeReason: string | null; disputedAt: string | null; running: boolean }
+type Entry = { id: string; startedAt: string; endedAt: string | null; durationSeconds: number; description: string | null; source: Source; verified: boolean; approved: boolean; approvedAt: string | null; disputed: boolean; disputeReason: string | null; disputedAt: string | null; running: boolean; activitySamples: number; avgActivityPct: number | null }
+type ActivityView = { id: string; capturedAt: string; activityPct: number | null; title: string | null; screenshotUrl: string | null }
 export type TimeSummary = { entries: Entry[]; approvedSeconds: number; pendingSeconds: number; disputedSeconds: number; runningEntryId: string | null }
 
 const inputCls = 'h-8 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary'
@@ -39,6 +40,18 @@ export function TimePanel({ contractId, role, rateType, rateAmount, active, init
   const [manualOpen, setManualOpen] = useState(false)
   const [disputingId, setDisputingId] = useState<string | null>(null)
   const [disputeReason, setDisputeReason] = useState('')
+  const [evidenceFor, setEvidenceFor] = useState<string | null>(null)
+  const [evidence, setEvidence] = useState<ActivityView[] | null>(null)
+
+  function viewEvidence(entryId: string) {
+    if (evidenceFor === entryId) { setEvidenceFor(null); return }
+    setEvidenceFor(entryId)
+    setEvidence(null)
+    start(async () => {
+      const r = await loadEvidenceAction(entryId)
+      if (!('error' in r)) setEvidence(r.samples)
+    })
+  }
 
   const running = initial.entries.find((e) => e.id === initial.runningEntryId) ?? null
   const [elapsed, setElapsed] = useState(0)
@@ -129,6 +142,7 @@ export function TimePanel({ contractId, role, rateType, rateAmount, active, init
                     <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{SOURCE_LABEL[e.source]}</span>
                     {e.approved && <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Approved</span>}
                     {e.disputed && <span title={e.disputeReason ?? undefined} className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-700"><Flag className="size-3" /> Disputed</span>}
+                    {e.activitySamples > 0 && <button onClick={() => viewEvidence(e.id)} title="View activity + screenshots" className="inline-flex items-center gap-0.5 rounded-full bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 hover:bg-sky-500/20"><Activity className="size-3" /> {e.avgActivityPct ?? 0}% · {e.activitySamples} shot{e.activitySamples === 1 ? '' : 's'}</button>}
                   </div>
                   {e.description && <p className="truncate text-xs text-muted-foreground">{e.description}</p>}
                   {e.disputed && e.disputeReason && <p className="mt-0.5 text-[11px] text-red-700">“{e.disputeReason}”</p>}
@@ -167,6 +181,29 @@ export function TimePanel({ contractId, role, rateType, rateAmount, active, init
                   <input value={disputeReason} onChange={(ev) => setDisputeReason(ev.target.value)} placeholder="Why are you disputing this entry? (required)" className={`${inputCls} w-full`} autoFocus />
                   <button disabled={pending || !disputeReason.trim()} onClick={() => run(async () => { const r = await disputeTimeAction(e.id, disputeReason.trim()); if (!r.error) setDisputingId(null); return r })} className="inline-flex h-8 shrink-0 items-center rounded-md bg-amber-600 px-3 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">Submit</button>
                   <button onClick={() => setDisputingId(null)} className="inline-flex h-8 shrink-0 items-center rounded-md border border-border px-2.5 text-sm text-muted-foreground hover:bg-muted">Cancel</button>
+                </div>
+              )}
+              {evidenceFor === e.id && (
+                <div className="mt-2 border-t border-border/50 pt-2">
+                  {!evidence ? (
+                    <p className="text-xs text-muted-foreground">Loading activity…</p>
+                  ) : evidence.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No activity captured.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {evidence.map((s) => (
+                        <div key={s.id} className="w-24">
+                          {s.screenshotUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <a href={s.screenshotUrl} target="_blank" rel="noopener noreferrer"><img src={s.screenshotUrl} alt="" className="h-16 w-24 rounded border border-border object-cover" /></a>
+                          ) : (
+                            <div className="grid h-16 w-24 place-items-center rounded border border-dashed border-border text-[10px] text-muted-foreground">no shot</div>
+                          )}
+                          <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{s.activityPct != null ? `${s.activityPct}% ` : ''}{s.title ?? ''}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </li>

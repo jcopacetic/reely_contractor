@@ -350,6 +350,17 @@ export async function revokeExtensionTokenAction(id: string): Promise<{ ok?: tru
   }
 }
 
+type ActivityView = { id: string; capturedAt: string; activityPct: number | null; title: string | null; screenshotUrl: string | null }
+/** Load an entry's plugin-timer evidence (activity samples + signed screenshot URLs). */
+export async function loadEvidenceAction(entryId: string): Promise<{ samples: ActivityView[] } | { error: string }> {
+  try {
+    const r = await apiQuery<{ samples: ActivityView[] } | null>('time.entryEvidence', { entryId })
+    return r ?? { samples: [] }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 type ListingCard = {
   id: string; ownerUserId: string; boardPartRef: string | null; title: string; description: string
   categoryIds: string[]; budgetType: BudgetType; budgetAmount: number | null; status: string; createdAt: string; bidCount: number; isOwner: boolean
