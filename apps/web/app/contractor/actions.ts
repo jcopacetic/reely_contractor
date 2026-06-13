@@ -332,6 +332,24 @@ export async function deleteTimeAction(entryId: string): Promise<TimeResult> {
   }
 }
 
+// ── extension tokens (the browser timer's credential) ────────────────────────────
+/** Mint a new extension token — returns the plaintext ONCE for the contractor to paste into the extension. */
+export async function mintExtensionTokenAction(label: string): Promise<{ token?: string; error?: string }> {
+  try {
+    return await apiMutate<{ token: string }>('extensionToken.mint', { label: label.trim() || undefined })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function revokeExtensionTokenAction(id: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    return await apiMutate<{ ok: true }>('extensionToken.revoke', { id })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 type ListingCard = {
   id: string; ownerUserId: string; boardPartRef: string | null; title: string; description: string
   categoryIds: string[]; budgetType: BudgetType; budgetAmount: number | null; status: string; createdAt: string; bidCount: number; isOwner: boolean

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { prisma, type DbActor } from '@contractor/db'
 import { env, type Env } from '../env'
@@ -14,6 +15,7 @@ export type ApiContext = {
   clerkUserId?: string
   role: ActorRole // defaults to 'applicant' for any signed-in non-contractor
   serviceCaller: boolean // x-contractor-service-key — the trusted web server + Board provider (Phase 2)
+  extensionToken?: string // x-extension-token — the browser-timer extension's per-contractor credential
 }
 
 /** Resolve the per-request ApiContext from inbound headers. Service gate keys on CONTRACTOR_SERVICE_KEY. */
@@ -35,6 +37,7 @@ export function resolveApiContext(
     clerkUserId: str(headers['x-acting-user']),
     role,
     serviceCaller: Boolean(e.CONTRACTOR_SERVICE_KEY) && serviceKey === e.CONTRACTOR_SERVICE_KEY,
+    extensionToken: str(headers['x-extension-token']),
   }
 }
 
@@ -81,4 +84,21 @@ export const vettedProcedure = sessionProcedure.use(async ({ ctx, next }) => {
 export const serviceProcedure = t.procedure.use(({ ctx, next }) => {
   if (!ctx.serviceCaller) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'service key required' })
   return next({ ctx })
+})
+
+/**
+ * Browser-timer EXTENSION gate. The extension can't hold the server service key, so it presents its own
+ * per-contractor token (`x-extension-token`). Resolve it to the contractor (sha256 → extension_token, not
+ * revoked) + require DB-vetted, then inject `clerkUserId`. A deliberate token-scoped trust path, distinct
+ * from the web-server service key.
+ */
+export const extensionProcedure = t.procedure.use(async ({ ctx, next }) => {
+  if (!ctx.extensionToken) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'extension token required' })
+  const tokenHash = createHash('sha256').update(ctx.extensionToken).digest('hex')
+  const tok = await prisma.extensionToken.findUnique({ where: { tokenHash }, select: { contractorUserId: true, revokedAt: true } })
+  if (!tok || tok.revokedAt) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'invalid extension token' })
+  const identity = await prisma.contractorIdentity.findUnique({ where: { clerkUserId: tok.contractorUserId }, select: { status: true } })
+  if (identity?.status !== 'vetted') throw new TRPCError({ code: 'FORBIDDEN', message: 'vetting required' })
+  void prisma.extensionToken.update({ where: { tokenHash }, data: { lastUsedAt: new Date() } }).catch(() => {}) // best-effort
+  return next({ ctx: { ...ctx, clerkUserId: tok.contractorUserId } })
 })

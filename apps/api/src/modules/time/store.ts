@@ -5,8 +5,10 @@
  * those exclusively). Participant-scoped (contractor writes own, client reads/approves). Raw prisma + app-layer
  * scoping (the api connects as the owner role; RLS is defense-in-depth). Writes ONLY time_entry.
  */
+import { randomUUID } from 'node:crypto'
 import { prisma } from '@contractor/db'
 import { emit } from '../../events'
+import { presignPut, presignGet } from '../../clients/r2'
 
 /** Auto-stop guard: a running timer can't bill more than this (a forgotten timer is clamped on stop/read). */
 export const MAX_RUNNING_HOURS = 12
@@ -257,4 +259,60 @@ export async function providerDispute(contractRef: string, entryId: string, reas
   await prisma.timeEntry.update({ where: { id: entryId }, data: { disputed: true, disputeReason: reason.trim().slice(0, 2000) || null, disputedAt: new Date(), approved: false, approvedAt: null } })
   await emit('time', 'time_entry.disputed', e.contract.clientUserId, { contractId: contractRef, entryId, via: 'board' }, 'client')
   return { ok: true }
+}
+
+// ── plugin-timer evidence: activity samples + screenshots (extension ingestion + reads) ───────────────
+type Sample = { capturedAt: string; activityPct?: number | null; title?: string | null; screenshotKey?: string | null }
+export type ActivityView = { id: string; capturedAt: string; activityPct: number | null; title: string | null; screenshotUrl: string | null }
+
+async function ownEntryContract(contractorUserId: string, entryId: string): Promise<string | null> {
+  const e = await prisma.timeEntry.findUnique({ where: { id: entryId }, select: { contractId: true, contractorUserId: true } })
+  return e && e.contractorUserId === contractorUserId ? e.contractId : null
+}
+
+async function loadEvidence(entryId: string): Promise<ActivityView[]> {
+  const rows = await prisma.timeActivity.findMany({ where: { timeEntryId: entryId }, orderBy: { capturedAt: 'asc' }, take: 500, select: { id: true, capturedAt: true, activityPct: true, title: true, screenshotKey: true } })
+  return Promise.all(rows.map(async (r) => ({ id: r.id, capturedAt: r.capturedAt.toISOString(), activityPct: r.activityPct, title: r.title, screenshotUrl: await presignGet(r.screenshotKey) })))
+}
+
+/** A presigned PUT URL for the extension to upload one screenshot straight to R2, + the key to reference later. */
+export async function presignScreenshot(contractorUserId: string, entryId: string): Promise<{ key: string; uploadUrl: string } | { error: string }> {
+  const contractId = await ownEntryContract(contractorUserId, entryId)
+  if (!contractId) return { error: 'not_found' }
+  const key = `time/${contractId}/${entryId}/${randomUUID()}.jpg`
+  const uploadUrl = await presignPut(key, 'image/jpeg')
+  if (!uploadUrl) return { error: 'storage_unconfigured' }
+  return { key, uploadUrl }
+}
+
+/** Record activity samples (each with an optional uploaded-screenshot key) for an entry. Contractor-owned. */
+export async function submitActivity(contractorUserId: string, entryId: string, samples: Sample[]): Promise<{ count: number } | { error: string }> {
+  if (!(await ownEntryContract(contractorUserId, entryId))) return { error: 'not_found' }
+  if (samples.length === 0) return { count: 0 }
+  const data = samples.slice(0, 200).map((s) => ({
+    timeEntryId: entryId,
+    contractorUserId,
+    capturedAt: new Date(s.capturedAt),
+    activityPct: typeof s.activityPct === 'number' ? Math.max(0, Math.min(100, Math.round(s.activityPct))) : null,
+    title: s.title?.trim().slice(0, 200) || null,
+    screenshotKey: s.screenshotKey || null,
+  }))
+  await prisma.timeActivity.createMany({ data })
+  return { count: data.length }
+}
+
+/** An entry's activity evidence (samples + signed screenshot URLs), participant-gated (client sees always). */
+export async function entryEvidence(viewerUserId: string, entryId: string): Promise<{ samples: ActivityView[] } | null> {
+  const e = await prisma.timeEntry.findUnique({ where: { id: entryId }, select: { contractorUserId: true, contract: { select: { clientUserId: true } } } })
+  if (!e) return null
+  if (e.contractorUserId !== viewerUserId && e.contract.clientUserId !== viewerUserId) return null
+  return { samples: await loadEvidence(entryId) }
+}
+
+/** Provider (Board client) evidence read — scoped to the named Board-originated contract. */
+export async function providerEntryEvidence(contractRef: string, entryId: string): Promise<{ samples: ActivityView[] } | { error: string }> {
+  const e = await prisma.timeEntry.findUnique({ where: { id: entryId }, select: { contractId: true, contract: { select: { boardRef: true } } } })
+  if (!e || e.contractId !== contractRef) return { error: 'not_found' }
+  if (!e.contract.boardRef) return { error: 'forbidden' }
+  return { samples: await loadEvidence(entryId) }
 }

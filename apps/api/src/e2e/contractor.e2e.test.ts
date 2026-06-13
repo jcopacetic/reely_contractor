@@ -51,8 +51,9 @@ beforeAll(async () => {
 afterAll(async () => {
   const users = [ALICE, BOB, CAROL, PAT, ADMIN]
   await prisma.room.deleteMany({ where: { OR: [{ participants: { some: { contractorUserId: { in: users } } } }, { tenantRef: TENANT }] } }) // cascades to participants/messages/reads
+  await prisma.extensionToken.deleteMany({ where: { contractorUserId: { in: users } } })
   await prisma.contractItem.deleteMany({ where: { contract: { OR: [{ clientUserId: { in: users } }, { contractorUserId: { in: users } }] } } })
-  await prisma.contract.deleteMany({ where: { OR: [{ clientUserId: { in: users } }, { contractorUserId: { in: users } }] } })
+  await prisma.contract.deleteMany({ where: { OR: [{ clientUserId: { in: users } }, { contractorUserId: { in: users } }] } }) // cascades time_entry → time_activity
   await prisma.post.deleteMany({ where: { authorUserId: { in: users } } })
   await prisma.appEvent.deleteMany({ where: { actorId: { in: users } } })
   await prisma.contractorProfile.deleteMany({ where: { clerkUserId: { in: users } } })
@@ -169,6 +170,36 @@ describe('chat rooms — provider hire/team + tenant-ref gate + join-gating', ()
     const bodies = bobView.messages.map((m) => m.body)
     expect(bodies).toContain('after bob joins')
     expect(bodies).not.toContain('before bob joins')
+  })
+})
+
+describe('plugin-timer evidence — extension token auth + activity', () => {
+  const extCtx = (t: string): ApiContext => ({ role: 'applicant', serviceCaller: false, extensionToken: t })
+  let token: string
+  let entryId: string
+  let contractId: string
+  beforeAll(async () => {
+    const c = await prisma.contract.create({ data: { clientUserId: ALICE, contractorUserId: BOB, title: 'Tracked work', rateType: 'hourly', rateAmount: 100 } })
+    contractId = c.id
+    token = (await call(ctx(BOB, 'contractor')).extensionToken.mint({ label: 'laptop' })).token
+  })
+  it('a valid extension token starts a timer; an invalid one is rejected', async () => {
+    const started = (await call(extCtx(token)).time.extension.start({ contractId })) as { entryId: string }
+    expect(started.entryId).toBeTruthy()
+    entryId = started.entryId
+    await expect(call(extCtx('ext_bogus')).time.extension.start({ contractId })).rejects.toThrow(/invalid extension token/)
+  })
+  it('submitActivity records samples; the client sees the evidence; a non-participant cannot', async () => {
+    expect(await call(extCtx(token)).time.extension.submitActivity({ entryId, samples: [{ capturedAt: new Date().toISOString(), activityPct: 80, title: 'VS Code' }] })).toEqual({ count: 1 })
+    const ev = await call(ctx(ALICE, 'contractor')).time.entryEvidence({ entryId }) // ALICE is the client — sees always
+    expect(ev?.samples.length).toBe(1)
+    expect(ev?.samples[0]?.activityPct).toBe(80)
+    expect(await call(ctx(CAROL, 'contractor')).time.entryEvidence({ entryId })).toBeNull()
+  })
+  it('a revoked token no longer authenticates', async () => {
+    const list = await call(ctx(BOB, 'contractor')).extensionToken.list()
+    await call(ctx(BOB, 'contractor')).extensionToken.revoke({ id: list[0]!.id })
+    await expect(call(extCtx(token)).time.extension.stop({ entryId })).rejects.toThrow(/invalid extension token/)
   })
 })
 

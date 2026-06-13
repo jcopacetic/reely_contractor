@@ -35,7 +35,10 @@ export default async function ProfileEditorPage() {
   return (
     <main className="mx-auto max-w-2xl px-6 py-10">
       <Link href="/contractor" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ChevronLeft className="size-4" /> The Club</Link>
-      <h1 className="mb-6 font-display text-2xl font-bold tracking-tight">Edit profile</h1>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
+        <h1 className="font-display text-2xl font-bold tracking-tight">Edit profile</h1>
+        <Link href="/contractor/extension" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">Timer extension</Link>
+      </div>
       <ProfileForm mode="edit" initial={initial} categories={categories} acceptedDocs={own.acceptedDocs} requiredDocs={own.requiredDocs} />
     </main>
   )

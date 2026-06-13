@@ -388,3 +388,31 @@ drop policy if exists te_client_approve on time_entry
 ;
 create policy te_client_approve on time_entry for update using (contract_id in (select id from contract where client_user_id = current_setting('app.actor_user', true))) with check (contract_id in (select id from contract where client_user_id = current_setting('app.actor_user', true)))
 ;
+
+-- time_activity: contractor owner writes; the contract's client reads (client-sees-always). Backstop; app guards real.
+alter table time_activity enable row level security
+;
+drop policy if exists ta_admin on time_activity
+;
+create policy ta_admin on time_activity for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists ta_owner on time_activity
+;
+create policy ta_owner on time_activity for all using (contractor_user_id = current_setting('app.actor_user', true)) with check (contractor_user_id = current_setting('app.actor_user', true))
+;
+drop policy if exists ta_client_read on time_activity
+;
+create policy ta_client_read on time_activity for select using (time_entry_id in (select te.id from time_entry te join contract c on c.id = te.contract_id where c.client_user_id = current_setting('app.actor_user', true)))
+;
+
+-- extension_token: owner-only (a per-contractor credential)
+alter table extension_token enable row level security
+;
+drop policy if exists et_admin on extension_token
+;
+create policy et_admin on extension_token for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists et_owner on extension_token
+;
+create policy et_owner on extension_token for all using (contractor_user_id = current_setting('app.actor_user', true)) with check (contractor_user_id = current_setting('app.actor_user', true))
+;

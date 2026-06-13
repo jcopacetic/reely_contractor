@@ -8,6 +8,7 @@ import { marketplaceRouter } from '../modules/marketplace/router'
 import { jobFeedRouter } from '../modules/job-feed/router'
 import { contractsRouter } from '../modules/contracts/router'
 import { timeRouter } from '../modules/time/router'
+import { extensionTokenRouter } from '../modules/extension-token/router'
 
 /**
  * Contractor api router. health + contractor-identity (apply → admin approve → vetted, Clerk role mirror)
@@ -28,6 +29,7 @@ export const appRouter = router({
   jobFeed: jobFeedRouter,
   contracts: contractsRouter,
   time: timeRouter,
+  extensionToken: extensionTokenRouter,
 })
 
 export type AppRouter = typeof appRouter
