@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 type Own = {
   profile:
-    | { displayName: string; headline: string | null; bio: string | null; links: { label: string; url: string }[]; categoryIds: string[]; isPublic: boolean; publicSlug: string | null; onboarded: boolean }
+    | { firstName: string; lastName: string; company: string | null; position: string | null; headline: string | null; bio: string | null; links: { label: string; url: string }[]; categoryIds: string[]; isPublic: boolean; publicSlug: string | null; onboarded: boolean }
     | null
   requiredDocs: string[]
   acceptedDocs: string[]
@@ -19,7 +19,10 @@ export default async function OnboardingPage() {
 
   const initial: ProfileInitial = own.profile
     ? {
-        displayName: own.profile.displayName,
+        firstName: own.profile.firstName,
+        lastName: own.profile.lastName,
+        company: own.profile.company,
+        position: own.profile.position,
         headline: own.profile.headline,
         bio: own.profile.bio,
         links: own.profile.links,

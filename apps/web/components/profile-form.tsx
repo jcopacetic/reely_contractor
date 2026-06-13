@@ -8,7 +8,10 @@ import { saveProfileAction, checkSlugAction, setPublicAction, acceptDocAction, c
 type Link = { label: string; url: string }
 type Category = { id: string; name: string; slug: string }
 export type ProfileInitial = {
-  displayName: string
+  firstName: string
+  lastName: string
+  company: string | null
+  position: string | null
   headline: string | null
   bio: string | null
   links: Link[]
@@ -33,7 +36,10 @@ export function ProfileForm({
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
-  const [displayName, setDisplayName] = useState(initial?.displayName ?? '')
+  const [firstName, setFirstName] = useState(initial?.firstName ?? '')
+  const [lastName, setLastName] = useState(initial?.lastName ?? '')
+  const [company, setCompany] = useState(initial?.company ?? '')
+  const [position, setPosition] = useState(initial?.position ?? '')
   const [headline, setHeadline] = useState(initial?.headline ?? '')
   const [bio, setBio] = useState(initial?.bio ?? '')
   const [links, setLinks] = useState<Link[]>(initial?.links ?? [])
@@ -51,7 +57,10 @@ export function ProfileForm({
     setErr(null); setMsg(null)
     start(async () => {
       const r = await saveProfileAction({
-        displayName: displayName.trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        company: company.trim() || null,
+        position: position.trim() || null,
         headline: headline.trim() || null,
         bio: bio.trim() || null,
         links: links.filter((l) => l.label.trim() && l.url.trim()),
@@ -84,7 +93,10 @@ export function ProfileForm({
           return
         }
         const saved = await saveProfileAction({
-          displayName: displayName.trim(),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          company: company.trim() || null,
+          position: position.trim() || null,
           headline: headline.trim() || null,
           bio: bio.trim() || null,
           links: links.filter((l) => l.label.trim() && l.url.trim()),
@@ -119,7 +131,7 @@ export function ProfileForm({
       await save()
       const r = await completeOnboardingAction()
       if (r.error) {
-        const labels = (r.missing ?? []).map((m) => (m === 'display_name' ? 'a name' : m === 'categories' ? 'at least one skill' : 'the agreement'))
+        const labels = (r.missing ?? []).map((m) => (m === 'name' ? 'your first + last name' : m === 'categories' ? 'at least one skill' : 'the agreement'))
         setErr(`Still needed: ${labels.join(', ')}.`)
       } else router.push('/contractor')
     })
@@ -127,10 +139,21 @@ export function ProfileForm({
 
   return (
     <div className="space-y-8">
-      <Section title="Basics">
-        <Field label="Display name">
-          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className={inputCls} placeholder="Your name or studio" />
-        </Field>
+      <Section title="Basics" hint="Your profile is YOU — an individual. Add a company + role if you have one; it shows as a detail, not your account name.">
+        <div className="grid gap-x-3 sm:grid-cols-2">
+          <Field label="First name">
+            <input value={firstName} onChange={(e) => setFirstName(e.target.value)} className={inputCls} placeholder="Jane" />
+          </Field>
+          <Field label="Last name">
+            <input value={lastName} onChange={(e) => setLastName(e.target.value)} className={inputCls} placeholder="Doe" />
+          </Field>
+          <Field label="Company (optional)">
+            <input value={company} onChange={(e) => setCompany(e.target.value)} className={inputCls} placeholder="where you work / your studio" />
+          </Field>
+          <Field label="Position (optional)">
+            <input value={position} onChange={(e) => setPosition(e.target.value)} className={inputCls} placeholder="e.g. Principal Engineer" />
+          </Field>
+        </div>
         <Field label="Headline">
           <input value={headline} onChange={(e) => setHeadline(e.target.value)} className={inputCls} placeholder="e.g. Full-stack engineer · HubSpot specialist" />
         </Field>

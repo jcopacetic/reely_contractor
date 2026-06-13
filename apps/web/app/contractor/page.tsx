@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation'
 import { apiQuery } from '@/lib/api'
-import { ContractorHeader } from '@/components/contractor-header'
 import { Feed, type FeedPost } from '@/components/feed'
 
 export const dynamic = 'force-dynamic'
@@ -17,7 +16,6 @@ export default async function ClubDashboard() {
 
   return (
     <>
-      <ContractorHeader active="feed" />
       <main className="mx-auto max-w-2xl px-4 py-6">
         <Feed initial={posts} me={{ displayName: own.profile.displayName, avatarUrl: own.profile.avatarUrl }} />
       </main>

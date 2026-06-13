@@ -11,6 +11,8 @@ export const revalidate = 3600
 
 type PublicProfile = {
   displayName: string
+  company: string | null
+  position: string | null
   headline: string | null
   bio: string | null
   categories: string[]
@@ -76,6 +78,9 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
           <div className="mx-auto mb-4 grid size-24 place-items-center rounded-full bg-primary/10 font-display text-3xl font-bold text-primary">{p.displayName.charAt(0)}</div>
         )}
         <h1 className="font-display text-2xl font-bold tracking-tight">{p.displayName}</h1>
+        {(p.position || p.company) && (
+          <p className="mt-1 text-sm font-medium text-foreground/80">{[p.position, p.company].filter(Boolean).join(' · ')}</p>
+        )}
         {p.headline && <p className="mt-1 text-sm text-muted-foreground">{p.headline}</p>}
       </div>
 

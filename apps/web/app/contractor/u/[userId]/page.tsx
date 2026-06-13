@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation'
 import { ExternalLink } from 'lucide-react'
 import { apiQuery } from '@/lib/api'
-import { ContractorHeader } from '@/components/contractor-header'
 import { FollowButton } from '@/components/follow-button'
 import { MessageButton } from '@/components/message-button'
 import { Feed, type FeedPost } from '@/components/feed'
@@ -12,6 +11,8 @@ type Badge = { key: string; name: string; description: string | null; xp: number
 type ClubProfile = {
   userId: string
   displayName: string
+  company: string | null
+  position: string | null
   headline: string | null
   bio: string | null
   categories: string[]
@@ -50,7 +51,6 @@ export default async function ClubMemberPage({ params }: { params: Promise<{ use
 
   return (
     <>
-      <ContractorHeader active={profile.isSelf ? 'profile' : undefined} />
       <main className="mx-auto max-w-2xl px-4 py-6">
         <section className="rounded-xl border border-border bg-card p-5">
           <div className="flex items-start gap-4">
@@ -66,6 +66,9 @@ export default async function ClubMemberPage({ params }: { params: Promise<{ use
                 <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary" title={`${profile.xp} XP`}>Lv {profile.level}</span>
                 {profile.streak > 1 && <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600" title="Day streak">🔥 {profile.streak}</span>}
               </div>
+              {(profile.position || profile.company) && (
+                <p className="text-sm font-medium text-foreground/80">{[profile.position, profile.company].filter(Boolean).join(' · ')}</p>
+              )}
               {profile.headline && <p className="text-sm text-muted-foreground">{profile.headline}</p>}
               <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                 <span><strong className="text-foreground">{profile.followerCount}</strong> followers</span>

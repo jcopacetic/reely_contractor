@@ -24,6 +24,10 @@ export async function getOwn(clerkUserId: string) {
   const docs = await prisma.onboardingDoc.findMany({ where: { clerkUserId }, select: { docKey: true } })
   return {
     profile: {
+      firstName: p.firstName,
+      lastName: p.lastName,
+      company: p.company,
+      position: p.position,
       displayName: p.displayName,
       headline: p.headline,
       bio: p.bio,
@@ -44,7 +48,7 @@ export async function getOwn(clerkUserId: string) {
 /** Upsert the editable profile fields (basics + links + categories) in one save. Validates categories. */
 export async function update(
   clerkUserId: string,
-  patch: { displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; categoryIds?: string[]; publicSlug?: string | null },
+  patch: { firstName?: string; lastName?: string; company?: string | null; position?: string | null; displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; categoryIds?: string[]; publicSlug?: string | null },
 ): Promise<{ ok: true } | { error: string }> {
   const idId = await identityId(clerkUserId)
   if (!idId) return { error: 'no_identity' }
@@ -65,7 +69,16 @@ export async function update(
   }
 
   const data: Prisma.ContractorProfileUncheckedUpdateInput = {}
-  if (patch.displayName !== undefined) data.displayName = patch.displayName
+  if (patch.firstName !== undefined) data.firstName = patch.firstName.trim()
+  if (patch.lastName !== undefined) data.lastName = patch.lastName.trim()
+  if (patch.company !== undefined) data.company = patch.company?.trim() || null
+  if (patch.position !== undefined) data.position = patch.position?.trim() || null
+  // displayName is DERIVED from first + last (the person's name) — NEVER set directly from a company field.
+  if (patch.firstName !== undefined || patch.lastName !== undefined) {
+    const cur = await prisma.contractorProfile.findUnique({ where: { clerkUserId }, select: { firstName: true, lastName: true } })
+    const dn = `${(patch.firstName ?? cur?.firstName ?? '').trim()} ${(patch.lastName ?? cur?.lastName ?? '').trim()}`.trim()
+    if (dn) data.displayName = dn
+  }
   if (patch.headline !== undefined) data.headline = patch.headline
   if (patch.bio !== undefined) data.bio = patch.bio
   if (patch.avatarUrl !== undefined) data.avatarUrl = patch.avatarUrl
@@ -80,7 +93,11 @@ export async function update(
       create: {
         contractorIdentityId: idId,
         clerkUserId,
-        displayName: patch.displayName ?? 'Contractor',
+        firstName: patch.firstName?.trim() ?? '',
+        lastName: patch.lastName?.trim() ?? '',
+        company: patch.company?.trim() || null,
+        position: patch.position?.trim() || null,
+        displayName: `${(patch.firstName ?? '').trim()} ${(patch.lastName ?? '').trim()}`.trim() || patch.displayName?.trim() || 'Contractor',
         headline: patch.headline ?? null,
         bio: patch.bio ?? null,
         avatarUrl: patch.avatarUrl ?? null,
@@ -130,7 +147,7 @@ export async function completeOnboarding(clerkUserId: string): Promise<{ ok: tru
   const docs = await prisma.onboardingDoc.findMany({ where: { clerkUserId }, select: { docKey: true } })
   const accepted = new Set(docs.map((d) => d.docKey))
   const missing: string[] = []
-  if (!p || !p.displayName.trim()) missing.push('display_name')
+  if (!p || !p.firstName.trim() || !p.lastName.trim()) missing.push('name')
   if (!p || ((p.categoryIds as unknown as string[]) ?? []).length === 0) missing.push('categories')
   for (const d of REQUIRED_DOCS) if (!accepted.has(d)) missing.push(`doc:${d}`)
   if (missing.length) return { error: 'incomplete', missing }
@@ -161,13 +178,15 @@ export async function listPublicSlugs(): Promise<Array<{ slug: string; updatedAt
 export async function getPublic(slug: string) {
   const p = await prisma.contractorProfile.findFirst({
     where: { publicSlug: slug.toLowerCase(), isPublic: true },
-    select: { displayName: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, contractsCompleted: true, hoursLogged: true },
+    select: { displayName: true, company: true, position: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, contractsCompleted: true, hoursLogged: true },
   })
   if (!p) return null
   const ids = (p.categoryIds as unknown as string[]) ?? []
   const cats = ids.length ? await prisma.skillCategory.findMany({ where: { id: { in: ids } }, select: { name: true } }) : []
   return {
     displayName: p.displayName,
+    company: p.company,
+    position: p.position,
     headline: p.headline,
     bio: p.bio,
     categories: cats.map((c) => c.name),

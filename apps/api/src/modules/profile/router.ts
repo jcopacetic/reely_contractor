@@ -10,7 +10,10 @@ export const profileRouter = router({
   update: vettedProcedure
     .input(
       z.object({
-        displayName: z.string().min(1).max(80).optional(),
+        firstName: z.string().min(1).max(60).optional(),
+        lastName: z.string().min(1).max(60).optional(),
+        company: z.string().max(120).nullish(),
+        position: z.string().max(120).nullish(),
         headline: z.string().max(140).nullish(),
         bio: z.string().max(2000).nullish(),
         avatarUrl: z.string().url().nullish(),

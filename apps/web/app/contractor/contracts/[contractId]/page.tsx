@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { apiQuery } from '@/lib/api'
-import { ContractorHeader } from '@/components/contractor-header'
 import { ContractDetail } from '@/components/contract-detail'
 import { TimePanel, type TimeSummary } from '@/components/time-panel'
 
@@ -25,7 +24,6 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
   if (!contract) notFound()
   return (
     <>
-      <ContractorHeader active="contracts" />
       <main className="mx-auto max-w-2xl px-4 py-6">
         <Link href="/contractor/contracts" className="text-sm text-muted-foreground hover:text-foreground">← All contracts</Link>
         <div className="mt-4 space-y-5">

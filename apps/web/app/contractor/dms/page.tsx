@@ -1,5 +1,4 @@
 import { apiQuery } from '@/lib/api'
-import { ContractorHeader } from '@/components/contractor-header'
 import { DmInbox } from '@/components/dms'
 
 export const dynamic = 'force-dynamic'
@@ -33,7 +32,6 @@ export default async function DmsPage({ searchParams }: { searchParams: Promise<
 
   return (
     <>
-      <ContractorHeader active="messages" />
       <main className="mx-auto max-w-3xl px-4 py-6">
         <DmInbox initialThreads={threads} initialActive={initialActive} me={me} />
       </main>

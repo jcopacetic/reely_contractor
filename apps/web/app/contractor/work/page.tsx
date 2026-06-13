@@ -1,5 +1,4 @@
 import { apiQuery } from '@/lib/api'
-import { ContractorHeader } from '@/components/contractor-header'
 import { WorkBrowse } from '@/components/work-browse'
 
 export const dynamic = 'force-dynamic'
@@ -19,7 +18,6 @@ export default async function WorkPage() {
   ])
   return (
     <>
-      <ContractorHeader active="jobs" />
       <main className="mx-auto max-w-2xl px-4 py-6">
         <WorkBrowse initial={listings} categories={categories} myCategoryIds={myCategoryIds} />
       </main>

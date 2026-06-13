@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import { apiQuery } from '@/lib/api'
-import { ContractorHeader } from '@/components/contractor-header'
 import { budgetLabel } from '@/components/work-browse'
 
 export const dynamic = 'force-dynamic'
@@ -23,7 +22,6 @@ export default async function ContractsPage() {
   const contracts = await apiQuery<Contract[]>('contracts.listMine').catch(() => [] as Contract[])
   return (
     <>
-      <ContractorHeader active="contracts" />
       <main className="mx-auto max-w-2xl px-4 py-6">
         <h1 className="mb-5 font-display text-2xl font-bold tracking-tight">Contracts</h1>
         {contracts.length === 0 ? (

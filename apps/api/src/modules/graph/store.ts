@@ -25,6 +25,8 @@ type Badge = { key: string; name: string; description: string | null; xp: number
 type ClubProfile = {
   userId: string
   displayName: string
+  company: string | null
+  position: string | null
   headline: string | null
   bio: string | null
   categories: string[]
@@ -64,6 +66,8 @@ export async function getClubProfile(viewerUserId: string, targetUserId: string)
   return {
     userId: targetUserId,
     displayName: p.displayName,
+    company: p.company,
+    position: p.position,
     headline: p.headline,
     bio: p.bio,
     categories: cats.map((c) => c.name),

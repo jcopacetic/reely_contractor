@@ -28,7 +28,10 @@ type Link = { label: string; url: string }
 type Result = { ok?: true; error?: string; missing?: string[] }
 
 export async function saveProfileAction(input: {
-  displayName?: string
+  firstName?: string
+  lastName?: string
+  company?: string | null
+  position?: string | null
   headline?: string | null
   bio?: string | null
   links?: Link[]
