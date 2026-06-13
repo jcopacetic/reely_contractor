@@ -4,6 +4,8 @@ import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Play, Square, Trash2, Plus, Check, Clock, ShieldCheck, ShieldAlert, Flag, Activity } from 'lucide-react'
 import { startTimerAction, stopTimerAction, cancelTimerAction, addManualTimeAction, approveTimeAction, unapproveTimeAction, disputeTimeAction, withdrawDisputeAction, deleteTimeAction, loadEvidenceAction } from '@/app/contractor/actions'
+import { useViewerTz } from '@/lib/timezone'
+import { fmtDateTime } from '@/lib/datetime'
 
 type Source = 'timer' | 'extension' | 'manual'
 type Entry = { id: string; startedAt: string; endedAt: string | null; durationSeconds: number; description: string | null; source: Source; verified: boolean; approved: boolean; approvedAt: string | null; disputed: boolean; disputeReason: string | null; disputedAt: string | null; running: boolean; activitySamples: number; avgActivityPct: number | null }
@@ -35,6 +37,7 @@ const hours = (s: number) => s / 3600
  */
 export function TimePanel({ contractId, role, rateType, rateAmount, active, initial }: { contractId: string; role: 'client' | 'contractor'; rateType: 'hourly' | 'fixed'; rateAmount: number; active: boolean; initial: TimeSummary }) {
   const router = useRouter()
+  const tz = useViewerTz()
   const [pending, start] = useTransition()
   const [err, setErr] = useState<string | null>(null)
   const [manualOpen, setManualOpen] = useState(false)
@@ -146,7 +149,7 @@ export function TimePanel({ contractId, role, rateType, rateAmount, active, init
                   </div>
                   {e.description && <p className="truncate text-xs text-muted-foreground">{e.description}</p>}
                   {e.disputed && e.disputeReason && <p className="mt-0.5 text-[11px] text-red-700">“{e.disputeReason}”</p>}
-                  <p className="text-[11px] text-muted-foreground">{new Date(e.startedAt).toLocaleString()}</p>
+                  <p className="text-[11px] text-muted-foreground">{fmtDateTime(e.startedAt, tz)}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {role === 'client' && !e.running && !e.approved && !e.disputed && (

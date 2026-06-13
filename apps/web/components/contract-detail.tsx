@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { Loader2, Plus } from 'lucide-react'
 import { createContractItemAction, updateContractStatusAction } from '@/app/contractor/actions'
 import { budgetLabel } from '@/components/work-browse'
+import { useViewerTz } from '@/lib/timezone'
+import { fmtDate } from '@/lib/datetime'
 
 type Kind = 'milestone' | 'scope_add' | 'deliverable' | 'note'
 type Item = { id: string; kind: Kind; title: string; description: string | null; amount: number | null; status: string; order: number }
@@ -32,6 +34,7 @@ const inputCls = 'h-8 rounded-md border border-border bg-background px-2 text-sm
 
 export function ContractDetail({ contract }: { contract: Contract }) {
   const router = useRouter()
+  const tz = useViewerTz()
   const [pending, start] = useTransition()
   const [kind, setKind] = useState<Kind>('milestone')
   const [title, setTitle] = useState('')
@@ -62,7 +65,7 @@ export function ContractDetail({ contract }: { contract: Contract }) {
           <span className="rounded-full bg-primary/10 px-2 py-0.5 font-semibold text-primary">{budgetLabel(contract.rateType, contract.rateAmount)}</span>
           <span>{contract.role === 'contractor' ? `Client ${shortId(contract.clientUserId)}` : `Contractor ${shortId(contract.contractorUserId)}`}</span>
           {contract.boardRef && <span className="rounded-full bg-muted px-2 py-0.5">via Board</span>}
-          <span>· started {new Date(contract.startedAt).toLocaleDateString()}</span>
+          <span>· started {fmtDate(contract.startedAt, tz)}</span>
         </div>
         {transitions.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">

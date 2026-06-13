@@ -4,6 +4,8 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Receipt, ShieldAlert } from 'lucide-react'
 import { raiseCycleDisputeAction } from '@/app/contractor/actions'
+import { useViewerTz } from '@/lib/timezone'
+import { fmtDate } from '@/lib/datetime'
 
 export type Cycle = {
   id: string
@@ -34,7 +36,7 @@ const hm = (s: number) => {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 const usd = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const day = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+const DAY_OPTS: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
 
 function countdown(iso: string): string {
   const ms = new Date(iso).getTime() - Date.now()
@@ -50,6 +52,7 @@ function countdown(iso: string): string {
  */
 export function BillingPanel({ cycles, role }: { cycles: Cycle[]; role: 'client' | 'contractor' }) {
   const router = useRouter()
+  const tz = useViewerTz()
   const [pending, start] = useTransition()
   const [openFor, setOpenFor] = useState<string | null>(null)
   const [reason, setReason] = useState('')
@@ -89,12 +92,12 @@ export function BillingPanel({ cycles, role }: { cycles: Cycle[]; role: 'client'
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-medium">
-                      {day(c.periodStart)} – {day(c.periodEnd)}
+                      {fmtDate(c.periodStart, tz, DAY_OPTS)} – {fmtDate(c.periodEnd, tz, DAY_OPTS)}
                     </p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {hm(c.totalSeconds)} · {role === 'contractor' ? `you receive ${usd(net)}` : `billed ${usd(c.totalAmount)}`}
                       {c.status === 'dispute_window' && ` · ${countdown(c.disputeWindowEndsAt)}`}
-                      {c.status === 'charged' && c.chargedAt && ` · ${new Date(c.chargedAt).toLocaleDateString()}`}
+                      {c.status === 'charged' && c.chargedAt && ` · ${fmtDate(c.chargedAt, tz)}`}
                       {c.status === 'charged' && c.payoutStatus && ` · payout ${c.payoutStatus}`}
                     </p>
                   </div>
