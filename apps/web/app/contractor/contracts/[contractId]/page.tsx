@@ -13,7 +13,7 @@ type Contract = {
   status: string; role: 'client' | 'contractor'; startedAt: string; endedAt: string | null; items: Item[]
 }
 
-const EMPTY_TIME: TimeSummary = { entries: [], approvedSeconds: 0, pendingSeconds: 0, runningEntryId: null }
+const EMPTY_TIME: TimeSummary = { entries: [], approvedSeconds: 0, pendingSeconds: 0, disputedSeconds: 0, runningEntryId: null }
 
 export default async function ContractDetailPage({ params }: { params: Promise<{ contractId: string }> }) {
   const { contractId } = await params

@@ -304,6 +304,33 @@ export async function unapproveTimeAction(entryId: string): Promise<TimeResult> 
   }
 }
 
+/** Client contests an entry (won't bill until resolved). */
+export async function disputeTimeAction(entryId: string, reason: string): Promise<TimeResult> {
+  try {
+    return await apiMutate<TimeResult>('time.dispute', { entryId, reason })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+/** Client withdraws a dispute (back to pending). */
+export async function withdrawDisputeAction(entryId: string): Promise<TimeResult> {
+  try {
+    return await apiMutate<TimeResult>('time.withdrawDispute', { entryId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+/** Contractor deletes own tracked time (un-billed) — also how they concede a dispute. */
+export async function deleteTimeAction(entryId: string): Promise<TimeResult> {
+  try {
+    return await apiMutate<TimeResult>('time.deleteEntry', { entryId })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 type ListingCard = {
   id: string; ownerUserId: string; boardPartRef: string | null; title: string; description: string
   categoryIds: string[]; budgetType: BudgetType; budgetAmount: number | null; status: string; createdAt: string; bidCount: number; isOwner: boolean

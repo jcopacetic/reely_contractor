@@ -2,12 +2,12 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, Play, Square, Trash2, Plus, Check, Clock } from 'lucide-react'
-import { startTimerAction, stopTimerAction, cancelTimerAction, addManualTimeAction, approveTimeAction, unapproveTimeAction } from '@/app/contractor/actions'
+import { Loader2, Play, Square, Trash2, Plus, Check, Clock, ShieldCheck, ShieldAlert, Flag } from 'lucide-react'
+import { startTimerAction, stopTimerAction, cancelTimerAction, addManualTimeAction, approveTimeAction, unapproveTimeAction, disputeTimeAction, withdrawDisputeAction, deleteTimeAction } from '@/app/contractor/actions'
 
 type Source = 'timer' | 'extension' | 'manual'
-type Entry = { id: string; startedAt: string; endedAt: string | null; durationSeconds: number; description: string | null; source: Source; approved: boolean; approvedAt: string | null; running: boolean }
-export type TimeSummary = { entries: Entry[]; approvedSeconds: number; pendingSeconds: number; runningEntryId: string | null }
+type Entry = { id: string; startedAt: string; endedAt: string | null; durationSeconds: number; description: string | null; source: Source; verified: boolean; approved: boolean; approvedAt: string | null; disputed: boolean; disputeReason: string | null; disputedAt: string | null; running: boolean }
+export type TimeSummary = { entries: Entry[]; approvedSeconds: number; pendingSeconds: number; disputedSeconds: number; runningEntryId: string | null }
 
 const inputCls = 'h-8 rounded-md border border-border bg-background px-2 text-sm outline-none focus:border-primary'
 const SOURCE_LABEL: Record<Source, string> = { timer: 'Timer', extension: 'Extension', manual: 'Manual' }
@@ -37,6 +37,8 @@ export function TimePanel({ contractId, role, rateType, rateAmount, active, init
   const [pending, start] = useTransition()
   const [err, setErr] = useState<string | null>(null)
   const [manualOpen, setManualOpen] = useState(false)
+  const [disputingId, setDisputingId] = useState<string | null>(null)
+  const [disputeReason, setDisputeReason] = useState('')
 
   const running = initial.entries.find((e) => e.id === initial.runningEntryId) ?? null
   const [elapsed, setElapsed] = useState(0)
@@ -72,6 +74,7 @@ export function TimePanel({ contractId, role, rateType, rateAmount, active, init
       <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
         <Stat label="Approved" value={hm(initial.approvedSeconds)} sub={billable != null ? `≈ $${billable.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : `${approvedHours.toFixed(1)}h`} accent />
         <Stat label="Pending" value={hm(initial.pendingSeconds)} sub={`${pendingHours.toFixed(1)}h awaiting approval`} />
+        {initial.disputedSeconds > 0 && <Stat label="Disputed" value={hm(initial.disputedSeconds)} sub="contested · won't bill" warn />}
         <Stat label="Rate" value={rateType === 'hourly' ? `$${rateAmount}/hr` : `$${rateAmount} fixed`} sub={rateType === 'fixed' ? 'time is informational' : 'billed on approval'} />
       </div>
 
@@ -115,28 +118,57 @@ export function TimePanel({ contractId, role, rateType, rateAmount, active, init
       ) : (
         <ul className="space-y-1.5">
           {initial.entries.map((e) => (
-            <li key={e.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 p-2.5">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium tabular-nums">{e.running ? 'running…' : hm(e.durationSeconds)}</span>
-                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{SOURCE_LABEL[e.source]}</span>
-                  {e.approved && <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Approved</span>}
+            <li key={e.id} className="rounded-lg border border-border/60 p-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-sm font-medium tabular-nums">{e.running ? 'running…' : hm(e.durationSeconds)}</span>
+                    {!e.running && (e.verified
+                      ? <span title="Tracked by the timer/extension" className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"><ShieldCheck className="size-3" /> Verified</span>
+                      : <span title="Manually entered — not activity-tracked" className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"><ShieldAlert className="size-3" /> Unverified</span>)}
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{SOURCE_LABEL[e.source]}</span>
+                    {e.approved && <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Approved</span>}
+                    {e.disputed && <span title={e.disputeReason ?? undefined} className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-700"><Flag className="size-3" /> Disputed</span>}
+                  </div>
+                  {e.description && <p className="truncate text-xs text-muted-foreground">{e.description}</p>}
+                  {e.disputed && e.disputeReason && <p className="mt-0.5 text-[11px] text-red-700">“{e.disputeReason}”</p>}
+                  <p className="text-[11px] text-muted-foreground">{new Date(e.startedAt).toLocaleString()}</p>
                 </div>
-                {e.description && <p className="truncate text-xs text-muted-foreground">{e.description}</p>}
-                <p className="text-[11px] text-muted-foreground">{new Date(e.startedAt).toLocaleString()}</p>
+                <div className="flex shrink-0 items-center gap-2">
+                  {role === 'client' && !e.running && !e.approved && !e.disputed && (
+                    <>
+                      <button onClick={() => run(() => approveTimeAction(e.id))} disabled={pending} className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
+                        <Check className="size-3" /> Approve
+                      </button>
+                      <button onClick={() => { setDisputingId(e.id); setDisputeReason(''); setErr(null) }} disabled={pending} title="Dispute this entry" className="inline-flex h-7 items-center gap-1 rounded-md border border-amber-400/60 px-2.5 text-xs text-amber-700 hover:bg-amber-50 disabled:opacity-50">
+                        <Flag className="size-3" /> Dispute
+                      </button>
+                    </>
+                  )}
+                  {role === 'client' && e.disputed && (
+                    <button onClick={() => run(() => withdrawDisputeAction(e.id))} disabled={pending} className="inline-flex h-7 items-center rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50">
+                      Withdraw
+                    </button>
+                  )}
+                  {role === 'client' && e.approved && (
+                    <button onClick={() => run(() => unapproveTimeAction(e.id))} disabled={pending} className="inline-flex h-7 items-center rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50">
+                      Revoke
+                    </button>
+                  )}
+                  {role === 'contractor' && !e.running && (
+                    <button onClick={() => run(() => deleteTimeAction(e.id))} disabled={pending} title={e.disputed ? 'Delete (concede the dispute)' : 'Delete this entry'} className="inline-flex size-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-destructive disabled:opacity-50">
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                {role === 'client' && !e.running && !e.approved && (
-                  <button onClick={() => run(() => approveTimeAction(e.id))} disabled={pending} className="inline-flex h-7 items-center gap-1 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
-                    <Check className="size-3" /> Approve
-                  </button>
-                )}
-                {role === 'client' && e.approved && (
-                  <button onClick={() => run(() => unapproveTimeAction(e.id))} disabled={pending} className="inline-flex h-7 items-center rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50">
-                    Revoke
-                  </button>
-                )}
-              </div>
+              {disputingId === e.id && (
+                <div className="mt-2 flex items-center gap-2 border-t border-border/50 pt-2">
+                  <input value={disputeReason} onChange={(ev) => setDisputeReason(ev.target.value)} placeholder="Why are you disputing this entry? (required)" className={`${inputCls} w-full`} autoFocus />
+                  <button disabled={pending || !disputeReason.trim()} onClick={() => run(async () => { const r = await disputeTimeAction(e.id, disputeReason.trim()); if (!r.error) setDisputingId(null); return r })} className="inline-flex h-8 shrink-0 items-center rounded-md bg-amber-600 px-3 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">Submit</button>
+                  <button onClick={() => setDisputingId(null)} className="inline-flex h-8 shrink-0 items-center rounded-md border border-border px-2.5 text-sm text-muted-foreground hover:bg-muted">Cancel</button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -145,9 +177,9 @@ export function TimePanel({ contractId, role, rateType, rateAmount, active, init
   )
 }
 
-function Stat({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: boolean }) {
+function Stat({ label, value, sub, accent, warn }: { label: string; value: string; sub?: string; accent?: boolean; warn?: boolean }) {
   return (
-    <div className={`rounded-lg border p-2.5 ${accent ? 'border-primary/30 bg-primary/5' : 'border-border/60'}`}>
+    <div className={`rounded-lg border p-2.5 ${warn ? 'border-amber-500/40 bg-amber-50' : accent ? 'border-primary/30 bg-primary/5' : 'border-border/60'}`}>
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="text-base font-semibold tabular-nums">{value}</p>
       {sub && <p className="text-[11px] text-muted-foreground">{sub}</p>}
