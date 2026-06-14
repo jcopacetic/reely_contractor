@@ -1,6 +1,55 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
+import { auth } from '@clerk/nextjs/server'
 import { apiMutate, apiQuery } from '@/lib/api'
+import { uploadMedia, storageConfigured } from '@/lib/storage'
+
+// ── Image uploads (avatar + profile image blocks) → contractor's public Supabase 'media' bucket ──────
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const ALLOWED_IMAGE_TYPES = new Set(['image/webp', 'image/jpeg', 'image/png', 'image/gif'])
+type UploadResult = { ok: true; url: string } | { error: 'signedOut' | 'forbidden' | 'storage' | 'invalid' | 'failed' }
+
+/** The acting contractor (vetted-flag or admin), or null. Gates uploads so only members fill the bucket. */
+async function actingContractor(): Promise<string | null> {
+  const { userId, sessionClaims } = await auth()
+  if (!userId) return null
+  const meta = sessionClaims?.metadata as { role?: string; contractor?: boolean } | undefined
+  return meta?.role === 'admin' || meta?.contractor === true ? userId : null
+}
+
+async function readImage(formData: FormData): Promise<{ bytes: Uint8Array; type: string } | { error: 'invalid' }> {
+  const file = formData.get('image')
+  if (!(file instanceof File) || file.size === 0) return { error: 'invalid' }
+  if (file.size > MAX_IMAGE_BYTES || !ALLOWED_IMAGE_TYPES.has(file.type)) return { error: 'invalid' }
+  return { bytes: new Uint8Array(await file.arrayBuffer()), type: file.type }
+}
+
+/** Upload a cropped avatar (stable key, overwrites) and persist it on the profile in one step. */
+export async function uploadAvatarAction(formData: FormData): Promise<UploadResult> {
+  const userId = await actingContractor()
+  if (!userId) return { error: 'forbidden' }
+  if (!storageConfigured()) return { error: 'storage' }
+  const img = await readImage(formData)
+  if ('error' in img) return img
+  const url = await uploadMedia(`u/${userId}/avatar`, img.bytes, img.type)
+  if (!url) return { error: 'failed' }
+  const r = await apiMutate<{ ok?: true; error?: string }>('profile.update', { avatarUrl: url }).catch((e: unknown) => ({ error: (e as Error).message }))
+  if (r && 'error' in r && r.error) return { error: 'failed' }
+  return { ok: true, url }
+}
+
+/** Upload a profile image-block picture (unique key) and return its URL for the editor to drop into the block. */
+export async function uploadBlockImageAction(formData: FormData): Promise<UploadResult> {
+  const userId = await actingContractor()
+  if (!userId) return { error: 'forbidden' }
+  if (!storageConfigured()) return { error: 'storage' }
+  const img = await readImage(formData)
+  if ('error' in img) return img
+  const url = await uploadMedia(`u/${userId}/b/${randomUUID()}`, img.bytes, img.type)
+  if (!url) return { error: 'failed' }
+  return { ok: true, url }
+}
 
 /** Submit an application (any signed-in user). */
 export async function applyAction(): Promise<{ ok: true } | { error: string }> {

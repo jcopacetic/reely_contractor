@@ -1,7 +1,33 @@
 'use client'
 
-import { ChevronDown, ChevronUp, Plus, Trash2, Type, Link2, Image as ImageIcon, List as ListIcon } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { ChevronDown, ChevronUp, Plus, Trash2, Type, Link2, Image as ImageIcon, List as ListIcon, Upload, Loader2 } from 'lucide-react'
 import type { Block } from '@/lib/profile-blocks'
+import { uploadBlockImageAction } from '@/app/contractor/actions'
+
+const MAX_EDGE = 1600 // downscale long edge before upload — keeps block images light
+
+/** Downscale a picked image file to a WebP blob (long edge ≤ MAX_EDGE); falls back to the original on failure. */
+function downscale(file: File): Promise<Blob> {
+  return new Promise((resolve) => {
+    const objectUrl = URL.createObjectURL(file)
+    const image = new Image()
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      const { naturalWidth: w, naturalHeight: h } = image
+      const ratio = Math.min(1, MAX_EDGE / Math.max(w, h))
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(w * ratio)
+      canvas.height = Math.round(h * ratio)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return resolve(file)
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob((b) => resolve(b ?? file), 'image/webp', 0.85)
+    }
+    image.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(file) }
+    image.src = objectUrl
+  })
+}
 
 const inputCls = 'h-9 w-full rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-primary'
 const TYPES = [
@@ -96,20 +122,62 @@ function BlockBody({ block, onChange }: { block: Block; onChange: (b: Block) => 
       </div>
     )
   }
-  if (block.type === 'image') {
-    return (
-      <div className="space-y-2">
-        <input value={block.url} onChange={(e) => onChange({ ...block, url: e.target.value })} placeholder="Image URL (https://…)" className={inputCls} />
-        <div className="flex gap-2">
-          <input value={block.alt ?? ''} onChange={(e) => onChange({ ...block, alt: e.target.value })} placeholder="Alt text" className={`${inputCls} flex-1`} />
-          <input value={block.caption ?? ''} onChange={(e) => onChange({ ...block, caption: e.target.value })} placeholder="Caption (optional)" className={`${inputCls} flex-1`} />
-        </div>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {block.url.trim() && <img src={block.url} alt="" className="max-h-40 w-full rounded-md border border-border object-cover" />}
-      </div>
-    )
+  if (block.type === 'image') return <ImageBlock block={block} onChange={onChange} />
+  if (block.type === 'list') return <ListBlock block={block} onChange={onChange} />
+  return null
+}
+
+type ImageBlockT = Extract<Block, { type: 'image' }>
+
+/** Image block: upload a picture (downscaled → Supabase) OR paste a URL; plus alt + caption. */
+function ImageBlock({ block, onChange }: { block: ImageBlockT; onChange: (b: Block) => void }) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [pending, setPending] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function pick(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    setErr(null); setPending(true)
+    try {
+      const blob = await downscale(f)
+      const fd = new FormData()
+      fd.append('image', blob, 'image.webp')
+      const r = await uploadBlockImageAction(fd)
+      if ('ok' in r) onChange({ ...block, url: r.url })
+      else setErr(r.error === 'storage' ? 'Image storage isn’t configured yet.' : r.error === 'forbidden' ? 'Only vetted contractors can upload.' : 'Upload failed — try again.')
+    } catch {
+      setErr('Something went wrong preparing the image.')
+    } finally {
+      setPending(false)
+    }
   }
-  // list
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <input value={block.url} onChange={(e) => onChange({ ...block, url: e.target.value })} placeholder="Image URL — or upload →" className={`${inputCls} flex-1`} />
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={pending} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-muted disabled:opacity-60">
+          {pending ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />} Upload
+        </button>
+        <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={pick} className="hidden" />
+      </div>
+      <div className="flex gap-2">
+        <input value={block.alt ?? ''} onChange={(e) => onChange({ ...block, alt: e.target.value })} placeholder="Alt text" className={`${inputCls} flex-1`} />
+        <input value={block.caption ?? ''} onChange={(e) => onChange({ ...block, caption: e.target.value })} placeholder="Caption (optional)" className={`${inputCls} flex-1`} />
+      </div>
+      {err && <p className="text-xs text-destructive">{err}</p>}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {block.url.trim() && <img src={block.url} alt="" className="max-h-40 w-full rounded-md border border-border object-cover" />}
+    </div>
+  )
+}
+
+type ListBlockT = Extract<Block, { type: 'list' }>
+
+/** List block: a titled set of bullet items. */
+function ListBlock({ block, onChange }: { block: ListBlockT; onChange: (b: Block) => void }) {
   const setItem = (k: number, v: string) => onChange({ ...block, items: block.items.map((x, j) => (j === k ? v : x)) })
   return (
     <div className="space-y-2">

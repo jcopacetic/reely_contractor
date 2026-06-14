@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Loader2, Check, ExternalLink, Globe } from 'lucide-react'
 import { saveProfileAction, checkSlugAction, setPublicAction, acceptDocAction, completeOnboardingAction } from '@/app/contractor/actions'
 import { ProfileBlocksEditor } from '@/components/profile-blocks-editor'
+import { AvatarUploader } from '@/components/avatar-uploader'
 import { cleanBlocks, type Block } from '@/lib/profile-blocks'
 
 type Category = { id: string; name: string; slug: string }
@@ -15,6 +16,7 @@ export type ProfileInitial = {
   position: string | null
   headline: string | null
   bio: string | null
+  avatarUrl: string | null
   blocks: Block[]
   categoryIds: string[]
   isPublic: boolean
@@ -140,6 +142,9 @@ export function ProfileForm({
   return (
     <div className="space-y-8">
       <Section title="Basics" hint="Your profile is YOU — an individual. Add a company + role if you have one; it shows as a detail, not your account name.">
+        <div className="mb-5">
+          <AvatarUploader initialUrl={initial?.avatarUrl ?? null} displayName={firstName || initial?.firstName} />
+        </div>
         <div className="grid gap-x-3 sm:grid-cols-2">
           <Field label="First name">
             <input value={firstName} onChange={(e) => setFirstName(e.target.value)} className={inputCls} placeholder="Jane" />
