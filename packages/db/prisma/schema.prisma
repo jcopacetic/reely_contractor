@@ -538,8 +538,11 @@ model ContractorReview {
   authorRef          String     @map("author_ref") // the client — clientUserId (native) or boardRef (Board); opaque
   authorLabel        String?    @map("author_label") // optional display label (e.g. the Board workspace name)
   kind               ReviewKind
-  rating             Int // 1..5
-  body               String     @db.Text
+  rating             Int? // overall 1..5 — finals: rounded mean of dimensions; legacy: as-given; weekly pulse: null
+  pulse              ReviewPulse? // weekly sentiment (up/neutral/down) — the 2-second touch
+  dimensions         Json? @db.JsonB // final only: { communication, quality, timeliness, collaboration } each 1..5
+  kudos              String[] @default([]) // endorsement chip keys (collected as badges on the public profile)
+  body               String?    @db.Text // optional one-liner (weekly); required comment (final, app-enforced)
   weekOf             DateTime?  @map("week_of") // ISO week start for a weekly review; null for the final
   approvedForDisplay Boolean    @default(false) @map("approved_for_display") // weekly opt-in; ignored for final (always shown)
   createdAt          DateTime   @default(now()) @map("created_at")
@@ -553,6 +556,12 @@ model ContractorReview {
 enum ReviewKind {
   weekly
   final
+}
+
+enum ReviewPulse {
+  up
+  neutral
+  down
 }
 
 /// An expandable part of a contract (milestone / scope-add / deliverable / note). Inherits the contract's scope.

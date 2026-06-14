@@ -6,14 +6,41 @@ import { Star, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { manageReviewAction } from '@/app/contractor/actions'
 import { fmtDate } from '@/lib/datetime'
 import { useViewerTz } from '@/lib/timezone'
+import { DIMENSIONS, kudosMeta, pulseMeta, type Dimensions, type Pulse } from '@/lib/reviews'
 
-export type Review = { id: string; kind: 'weekly' | 'final'; rating: number; body: string; authorLabel: string | null; weekOf: string | null; approvedForDisplay: boolean; createdAt: string }
+export type Review = { id: string; kind: 'weekly' | 'final'; rating: number | null; pulse: Pulse | null; dimensions: Dimensions | null; kudos: string[]; body: string | null; authorLabel: string | null; weekOf: string | null; approvedForDisplay: boolean; createdAt: string }
 
 function Stars({ n }: { n: number }) {
   return (
     <span className="inline-flex" aria-label={`${n} of 5`}>
       {[1, 2, 3, 4, 5].map((i) => <Star key={i} className={`size-3.5 ${i <= n ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40'}`} />)}
     </span>
+  )
+}
+
+/** The body of one review: a final shows dimension stars; a weekly shows its pulse. Both can carry kudos + a note. */
+export function ReviewBody({ r }: { r: { kind: 'weekly' | 'final'; pulse: Pulse | null; dimensions: Dimensions | null; kudos: string[]; body: string | null } }) {
+  const pulse = pulseMeta(r.pulse)
+  return (
+    <>
+      {r.kind === 'final' && r.dimensions && (
+        <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1">
+          {DIMENSIONS.map((d) => (
+            <div key={d.key} className="flex items-center justify-between gap-2">
+              <span className="text-[11px] text-muted-foreground">{d.label}</span>
+              <Stars n={r.dimensions![d.key]} />
+            </div>
+          ))}
+        </div>
+      )}
+      {r.kind === 'weekly' && pulse && <p className="mt-1 text-sm"><span className="mr-1">{pulse.emoji}</span><span className="text-muted-foreground">{pulse.label} week</span></p>}
+      {r.kudos.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {r.kudos.map((k) => { const m = kudosMeta(k); return <span key={k} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px]">{m.emoji} {m.label}</span> })}
+        </div>
+      )}
+      {r.body && <p className="mt-1.5 whitespace-pre-line text-sm">{r.body}</p>}
+    </>
   )
 }
 
@@ -52,10 +79,10 @@ export function ContractReviews({ reviews, role }: { reviews: Review[]; role: 'c
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <Stars n={r.rating} />
+                    {typeof r.rating === 'number' && <Stars n={r.rating} />}
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${r.kind === 'final' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>{r.kind === 'final' ? 'Final' : 'Weekly'}</span>
                   </div>
-                  <p className="mt-1.5 whitespace-pre-line text-sm">{r.body}</p>
+                  <ReviewBody r={r} />
                   <p className="mt-1 text-[11px] text-muted-foreground">{r.authorLabel ?? 'Client'} · {fmtDate(r.createdAt, tz)}</p>
                 </div>
                 {role === 'contractor' && (

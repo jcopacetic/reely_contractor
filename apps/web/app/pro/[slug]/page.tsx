@@ -5,6 +5,7 @@ import { apiQuery } from '@/lib/api'
 import { JsonLd } from '@/components/json-ld'
 import { buildMetadata, ogImage, profileLd } from '@/lib/seo'
 import type { Block } from '@/lib/profile-blocks'
+import { DIMENSIONS, kudosMeta, pulseMeta, type Dimensions, type Pulse } from '@/lib/reviews'
 
 // ISR: the public profile is anonymous + safe-subset; the read is cache-friendly (revalidate below),
 // so the page no longer needs `force-dynamic`. Authenticated club pages keep `no-store` (lib/api.ts).
@@ -22,7 +23,13 @@ type PublicProfile = {
   blocks: Block[]
   contractsCompleted: number
   hoursLogged: number
-  reviews: { avg: number; count: number; items: Array<{ id: string; kind: string; rating: number; body: string; authorLabel: string | null; createdAt: string }> }
+  reviews: {
+    avg: number
+    count: number
+    dimensionAvgs: Dimensions | null
+    kudos: Array<{ key: string; count: number }>
+    items: Array<{ id: string; kind: string; rating: number | null; pulse: Pulse | null; dimensions: Dimensions | null; kudos: string[]; body: string | null; authorLabel: string | null; createdAt: string }>
+  }
 } | null
 
 const REVALIDATE = 3600
@@ -113,27 +120,58 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
       <section className="mt-8">
         <h2 className="mb-2 flex items-center justify-between font-display text-sm font-semibold text-muted-foreground">
           <span>Reviews</span>
-          {p.reviews.count > 0 && (
+          {p.reviews.avg > 0 && (
             <span className="inline-flex items-center gap-1 text-foreground"><Star className="size-3.5 fill-amber-400 text-amber-400" /> {p.reviews.avg.toFixed(1)} <span className="text-muted-foreground">({p.reviews.count})</span></span>
           )}
         </h2>
         {p.reviews.count === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-muted/20 p-5 text-center text-xs text-muted-foreground">No reviews yet — client reviews will appear here.</div>
         ) : (
-          <ul className="space-y-2">
-            {p.reviews.items.map((r) => (
-              <li key={r.id} className="rounded-xl border border-border bg-card p-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-flex" aria-label={`${r.rating} of 5`}>
-                    {[1, 2, 3, 4, 5].map((i) => <Star key={i} className={`size-3.5 ${i <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/30'}`} />)}
-                  </span>
-                  {r.kind === 'final' && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Final</span>}
-                </div>
-                <p className="mt-1.5 whitespace-pre-line text-sm text-foreground/90">{r.body}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">— {r.authorLabel ?? 'Client'}</p>
-              </li>
-            ))}
-          </ul>
+          <div className="space-y-3">
+            {/* Per-dimension averages + collectible kudos badges (the at-a-glance reputation). */}
+            {(p.reviews.dimensionAvgs || p.reviews.kudos.length > 0) && (
+              <div className="rounded-xl border border-border bg-card p-4">
+                {p.reviews.dimensionAvgs && (
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4">
+                    {DIMENSIONS.map((d) => (
+                      <div key={d.key}>
+                        <div className="text-[11px] text-muted-foreground">{d.label}</div>
+                        <div className="flex items-center gap-1 text-sm font-semibold"><Star className="size-3.5 fill-amber-400 text-amber-400" /> {p.reviews.dimensionAvgs![d.key].toFixed(1)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {p.reviews.kudos.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5 border-t border-border/60 pt-3">
+                    {p.reviews.kudos.map((k) => { const m = kudosMeta(k.key); return <span key={k.key} className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">{m.emoji} {m.label}{k.count > 1 && <span className="text-muted-foreground">×{k.count}</span>}</span> })}
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Testimonials — final comments + approved weekly notes. */}
+            <ul className="space-y-2">
+              {p.reviews.items.map((r) => (
+                <li key={r.id} className="rounded-xl border border-border bg-card p-3">
+                  <div className="flex items-center gap-1.5">
+                    {typeof r.rating === 'number' && (
+                      <span className="inline-flex" aria-label={`${r.rating} of 5`}>
+                        {[1, 2, 3, 4, 5].map((i) => <Star key={i} className={`size-3.5 ${i <= r.rating! ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/30'}`} />)}
+                      </span>
+                    )}
+                    {r.kind === 'weekly' && r.pulse && <span className="text-sm">{pulseMeta(r.pulse)?.emoji}</span>}
+                    {r.kind === 'final' && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Final</span>}
+                  </div>
+                  {r.kudos.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {r.kudos.map((k) => { const m = kudosMeta(k); return <span key={k} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px]">{m.emoji} {m.label}</span> })}
+                    </div>
+                  )}
+                  {r.body && <p className="mt-1.5 whitespace-pre-line text-sm text-foreground/90">{r.body}</p>}
+                  <p className="mt-1 text-[11px] text-muted-foreground">— {r.authorLabel ?? 'Client'}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </section>
 
