@@ -2,14 +2,18 @@ import { z } from 'zod'
 import { router, vettedProcedure, publicProcedure } from '../../trpc/trpc'
 import * as profile from './store'
 
-const linkSchema = z.object({ label: z.string().min(1).max(60), url: z.string().url() })
+// User-supplied URLs are rendered into the public profile — restrict to http(s) so a `javascript:`/`data:`
+// scheme can't ride into an <a href> (z.url() alone accepts any scheme → stored XSS).
+const httpUrl = (max = 500) => z.string().url().max(max).refine((u) => /^https?:\/\//i.test(u), { message: 'must be an http(s) URL' })
+
+const linkSchema = z.object({ label: z.string().min(1).max(60), url: httpUrl() })
 
 // Landing-page content blocks (the slim-Linktree builder). Discriminated on `type`; bounded everywhere.
 const blockId = z.string().min(1).max(64)
 const blockSchema = z.discriminatedUnion('type', [
   z.object({ id: blockId, type: z.literal('text'), heading: z.string().max(120).nullish(), body: z.string().min(1).max(2000) }),
-  z.object({ id: blockId, type: z.literal('links'), title: z.string().max(120).nullish(), items: z.array(z.object({ label: z.string().min(1).max(80), url: z.string().url().max(500) })).min(1).max(15) }),
-  z.object({ id: blockId, type: z.literal('image'), url: z.string().url().max(500), alt: z.string().max(200).nullish(), caption: z.string().max(200).nullish() }),
+  z.object({ id: blockId, type: z.literal('links'), title: z.string().max(120).nullish(), items: z.array(z.object({ label: z.string().min(1).max(80), url: httpUrl() })).min(1).max(15) }),
+  z.object({ id: blockId, type: z.literal('image'), url: httpUrl(), alt: z.string().max(200).nullish(), caption: z.string().max(200).nullish() }),
   z.object({ id: blockId, type: z.literal('list'), title: z.string().max(120).nullish(), items: z.array(z.string().min(1).max(200)).min(1).max(20) }),
 ])
 
@@ -25,7 +29,7 @@ export const profileRouter = router({
         position: z.string().max(120).nullish(),
         headline: z.string().max(140).nullish(),
         bio: z.string().max(2000).nullish(),
-        avatarUrl: z.string().url().nullish(),
+        avatarUrl: httpUrl().nullish(),
         links: z.array(linkSchema).max(10).optional(),
         blocks: z.array(blockSchema).max(20).optional(),
         categoryIds: z.array(z.string().uuid()).max(12).optional(),

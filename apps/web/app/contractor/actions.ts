@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import { auth } from '@clerk/nextjs/server'
 import { apiMutate, apiQuery } from '@/lib/api'
-import { uploadMedia, storageConfigured } from '@/lib/storage'
+import { uploadMedia, storageConfigured, looksLikeImage } from '@/lib/storage'
 
 // ── Image uploads (avatar + profile image blocks) → contractor's public Supabase 'media' bucket ──────
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -22,7 +22,9 @@ async function readImage(formData: FormData): Promise<{ bytes: Uint8Array; type:
   const file = formData.get('image')
   if (!(file instanceof File) || file.size === 0) return { error: 'invalid' }
   if (file.size > MAX_IMAGE_BYTES || !ALLOWED_IMAGE_TYPES.has(file.type)) return { error: 'invalid' }
-  return { bytes: new Uint8Array(await file.arrayBuffer()), type: file.type }
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  if (!looksLikeImage(bytes)) return { error: 'invalid' } // verify real image bytes, don't trust the MIME label
+  return { bytes, type: file.type }
 }
 
 /** Upload a cropped avatar (stable key, overwrites) and persist it on the profile in one step. */

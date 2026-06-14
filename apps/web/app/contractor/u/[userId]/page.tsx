@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { ExternalLink } from 'lucide-react'
 import { apiQuery } from '@/lib/api'
+import { safeUrl } from '@/lib/profile-blocks'
 import { FollowButton } from '@/components/follow-button'
 import { MessageButton } from '@/components/message-button'
 import { Feed, type FeedPost } from '@/components/feed'
@@ -100,11 +101,15 @@ export default async function ClubMemberPage({ params }: { params: Promise<{ use
 
           {profile.links.length > 0 && (
             <div className="mt-4 flex flex-wrap gap-2">
-              {profile.links.map((l, i) => (
-                <a key={i} href={l.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md bg-muted px-2.5 py-1 text-xs text-foreground hover:bg-muted/70">
-                  {l.label} <ExternalLink className="size-3" />
-                </a>
-              ))}
+              {profile.links.map((l, i) => {
+                const href = safeUrl(l.url)
+                if (!href) return null
+                return (
+                  <a key={i} href={href} target="_blank" rel="noreferrer nofollow" className="inline-flex items-center gap-1 rounded-md bg-muted px-2.5 py-1 text-xs text-foreground hover:bg-muted/70">
+                    {l.label} <ExternalLink className="size-3" />
+                  </a>
+                )
+              })}
             </div>
           )}
 

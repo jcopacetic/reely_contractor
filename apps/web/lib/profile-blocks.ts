@@ -6,6 +6,13 @@ export type Block =
   | { id: string; type: 'image'; url: string; alt?: string | null; caption?: string | null }
   | { id: string; type: 'list'; title?: string | null; items: string[] }
 
+/** Render-time guard: only emit http(s) hrefs. Anything else (javascript:/data:/relative) → null, so a
+ *  malicious or legacy stored URL can't execute as a link. Defense-in-depth behind the API's http(s) validation. */
+export function safeUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined
+  return /^https?:\/\//i.test(url.trim()) ? url.trim() : undefined
+}
+
 /** Drop incomplete blocks + trim, so a half-filled block doesn't trip the API's min-length validation. */
 export function cleanBlocks(blocks: Block[]): Block[] {
   const out: Block[] = []

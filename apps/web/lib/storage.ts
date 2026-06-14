@@ -15,6 +15,17 @@ const BUCKET = process.env.SUPABASE_MEDIA_BUCKET ?? 'media'
 
 export const storageConfigured = (): boolean => Boolean(URL_BASE && KEY)
 
+/** Sniff the leading magic bytes to confirm the payload is actually a WebP/JPEG/PNG/GIF — don't trust the
+ *  client-declared MIME (a crafted request could label arbitrary bytes as image/webp). */
+export function looksLikeImage(b: Uint8Array): boolean {
+  if (b.length < 12) return false
+  const jpeg = b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff
+  const png = b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47
+  const gif = b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38 // GIF8
+  const webp = b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50 // RIFF…WEBP
+  return jpeg || png || gif || webp
+}
+
 /**
  * Upload (upsert) bytes to the public media bucket at `key`, returning the public URL (cache-busted with `?v=`
  * so a re-upload to a stable key shows immediately). null when unconfigured or on failure (never throws).

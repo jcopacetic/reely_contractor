@@ -4,7 +4,7 @@ import { Briefcase, Clock, ExternalLink, Star } from 'lucide-react'
 import { apiQuery } from '@/lib/api'
 import { JsonLd } from '@/components/json-ld'
 import { buildMetadata, ogImage, profileLd } from '@/lib/seo'
-import type { Block } from '@/lib/profile-blocks'
+import { safeUrl, type Block } from '@/lib/profile-blocks'
 import { DIMENSIONS, kudosMeta, pulseMeta, type Dimensions, type Pulse } from '@/lib/reviews'
 
 // ISR: the public profile is anonymous + safe-subset; the read is cache-friendly (revalidate below),
@@ -194,11 +194,15 @@ function BlockView({ block }: { block: Block }) {
     return (
       <section className="space-y-2">
         {block.title && <h2 className="font-display text-sm font-semibold text-muted-foreground">{block.title}</h2>}
-        {block.items.map((l, i) => (
-          <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium shadow-sm transition hover:border-primary/40">
-            {l.label} <ExternalLink className="size-4 text-muted-foreground" />
-          </a>
-        ))}
+        {block.items.map((l, i) => {
+          const href = safeUrl(l.url)
+          if (!href) return null
+          return (
+            <a key={i} href={href} target="_blank" rel="noopener noreferrer nofollow" className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium shadow-sm transition hover:border-primary/40">
+              {l.label} <ExternalLink className="size-4 text-muted-foreground" />
+            </a>
+          )
+        })}
       </section>
     )
   }
