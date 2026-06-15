@@ -61,7 +61,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
-      - run: pnpm --filter @contractor/db exec prisma migrate deploy # apply 0_init + the delta to the fresh DB
+      - run: pnpm --filter @contractor/db exec prisma migrate deploy # apply 00_init + the deltas to the fresh DB
       # test:e2e loads ../../.env via dotenv-cli — materialize one from the job env.
       - run: printf 'DATABASE_URL=%s\nDIRECT_URL=%s\n' "$DATABASE_URL" "$DIRECT_URL" > .env
       - run: pnpm --filter @contractor/api test:e2e

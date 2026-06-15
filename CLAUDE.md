@@ -69,9 +69,13 @@ railway (api/worker) · vercel (web) · supabase-postgres · sentry · posthog �
 - `pnpm --filter @contractor/db migrate` then `… rls` then `… seed`. Clerk unset locally → a dev session powers
   the loop; Resend/R2/Stripe/Supabase clients no-op/stub when keys are unset.
 - **Migrate-managed (NOT `db push`).** Schema changes = a committed versioned migration: `pnpm --filter
-  @contractor/db migrate` writes + applies `prisma/migrations/<name>/migration.sql` (commit it). Apply to prod
-  by running that one `migration.sql` via the Supabase MCP (`mgjhsihzhltemvkssbbg`). `0_init` is the baseline
-  (the original schema) — NOT re-applied to the existing prod DB; only post-baseline migrations are.
+  @contractor/db migrate` writes + applies `prisma/migrations/<name>/migration.sql` (commit it). Prod's
+  `_prisma_migrations` is now baselined (2026-06-14), so the forward path is `prisma migrate deploy` against prod;
+  applying the raw `migration.sql` via the Supabase MCP (`mgjhsihzhltemvkssbbg`) still works as a fallback.
+- **Migration naming = ZERO-PADDED two-digit** (`00_init` … `09_review_dimensions`; the NEXT is `10_<name>`).
+  Prisma orders migrations lexicographically, so a single-digit `10_` would have sorted before `1_` — the
+  `0–9` dirs were padded to `00–09` to fix that. Keep new ones two-digit (`10_`, `11_`, …). `00_init` is the
+  baseline (original schema) — NOT re-applied to the existing prod DB; only post-baseline migrations are.
 
 ## Definition of done (per module)
 Static harness assertions green (user-scope-isolation, vetting-gate, participant-scope, public-field discipline,
