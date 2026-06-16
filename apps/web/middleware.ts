@@ -15,6 +15,7 @@ const hasClerk =
 const isPublicProfile = createRouteMatcher(['/pro/(.*)'])
 const isContractorApp = createRouteMatcher(['/contractor(.*)'])
 const isApplicantArea = createRouteMatcher(['/contractor/apply', '/contractor/status'])
+const isAdminArea = createRouteMatcher(['/contractor/admin(.*)'])
 
 const clerk = clerkMiddleware(async (auth, req) => {
   if (isPublicProfile(req)) return // public, unauthenticated
@@ -23,10 +24,18 @@ const clerk = clerkMiddleware(async (auth, req) => {
   await auth.protect() // the whole /contractor area requires sign-in
   if (isApplicantArea(req)) return // apply + status are open to any signed-in user
 
+  const { sessionClaims } = await auth()
+  const meta = sessionClaims?.metadata as { contractor?: boolean; role?: string } | undefined
+
+  // The vetting console is platform_admin-only — and admins may NOT carry the contractor flag, so it can't
+  // sit behind the club gate below. Gate it on the portfolio `role` instead; the page + api re-check too.
+  if (isAdminArea(req)) {
+    if (meta?.role === 'admin') return
+    return NextResponse.redirect(new URL('/contractor/status', req.url))
+  }
+
   // The club app itself: vetted contractors only. Gate on the dedicated `contractor` flag (set on approval),
   // NOT the portfolio-wide `role` — a user can be an admin AND a contractor.
-  const { sessionClaims } = await auth()
-  const meta = sessionClaims?.metadata as { contractor?: boolean } | undefined
   if (meta?.contractor !== true) return NextResponse.redirect(new URL('/contractor/status', req.url))
 })
 
