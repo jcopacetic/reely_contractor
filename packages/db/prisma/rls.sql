@@ -509,3 +509,15 @@ drop policy if exists su_party on standup
 ;
 create policy su_party on standup for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
 ;
+
+-- sprint: a contract's participants negotiate/read sprints; system/admin all. Backstop.
+alter table sprint enable row level security
+;
+drop policy if exists sp_admin on sprint
+;
+create policy sp_admin on sprint for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists sp_party on sprint
+;
+create policy sp_party on sprint for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
+;

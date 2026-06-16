@@ -523,6 +523,7 @@ model Contract {
   billingCycles BillingCycle[]
   reviews      ContractorReview[]
   standups     Standup[]
+  sprints      Sprint[]
 
   @@index([contractorUserId])
   @@index([clientUserId])
@@ -545,6 +546,33 @@ model Standup {
 
   @@index([contractId, createdAt])
   @@map("standup")
+}
+
+/// An agile sprint on a contract — a two-party-negotiated collection of tasks + a time-to-deliver. Either party
+/// proposes; edits reset the other's approval (the counter-edit game); both-approved → agreed. Effort points
+/// (≈ hours) sum to the expected billed time → × the rate = the expected budget. `items` = [{ title, effortPoints }].
+model Sprint {
+  id                 String       @id @default(uuid()) @db.Uuid
+  contractId         String       @map("contract_id") @db.Uuid
+  contract           Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  status             SprintStatus @default(proposed)
+  ttdDays            Int          @map("ttd_days") // time-to-deliver window, in days
+  items              Json         @db.JsonB // [{ title: string, effortPoints: number }]
+  clientApproved     Boolean      @default(false) @map("client_approved")
+  contractorApproved Boolean      @default(false) @map("contractor_approved")
+  lastEditedByRole   String       @map("last_edited_by_role") // 'client' | 'contractor'
+  createdAt          DateTime     @default(now()) @map("created_at")
+  agreedAt           DateTime?    @map("agreed_at")
+
+  @@index([contractId, createdAt])
+  @@map("sprint")
+}
+
+enum SprintStatus {
+  proposed
+  agreed
+  completed
+  cancelled
 }
 
 /// A client's review of the contractor on a contract. `weekly` reviews are private until the contractor

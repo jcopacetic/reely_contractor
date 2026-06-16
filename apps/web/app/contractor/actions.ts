@@ -312,6 +312,41 @@ export async function setDefinitionOfDoneAction(contractId: string, text: string
   }
 }
 
+// ── Sprints (agile ceremony) ────────────────────────────────────────────────────────────
+type SprintItem = { title: string; effortPoints: number }
+export async function proposeSprintAction(contractId: string, items: SprintItem[], ttdDays: number): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ id?: string; error?: string }>('sprint.propose', { contractId, items, ttdDays })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function editSprintAction(sprintId: string, items: SprintItem[], ttdDays: number): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('sprint.edit', { sprintId, items, ttdDays })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function approveSprintAction(sprintId: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; agreed?: boolean; error?: string }>('sprint.approve', { sprintId })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function cancelSprintAction(sprintId: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('sprint.cancel', { sprintId })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 // ── Stand-ups (agile ceremony) ────────────────────────────────────────────────────────
 export async function postStandupAction(contractId: string, input: { done: string; next: string; blockers?: string }): Promise<{ ok?: true; error?: string }> {
   try {
