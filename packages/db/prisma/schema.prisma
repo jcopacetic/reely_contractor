@@ -561,6 +561,13 @@ model Sprint {
   clientApproved     Boolean      @default(false) @map("client_approved")
   contractorApproved Boolean      @default(false) @map("contractor_approved")
   lastEditedByRole   String       @map("last_edited_by_role") // 'client' | 'contractor'
+  // review / acceptance (agreed → contractor submits → review → client accepts → completed)
+  submittedAt        DateTime?    @map("submitted_at")
+  reviewDueAt        DateTime?    @map("review_due_at") // auto-accept deadline (display now; the cron lands later)
+  acceptedAt         DateTime?    @map("accepted_at")
+  autoAccepted       Boolean      @default(false) @map("auto_accepted")
+  submissionNote     String?      @map("submission_note") @db.Text // what the contractor delivered / how to verify
+  changeRequestNote  String?      @map("change_request_note") @db.Text // the client's requested changes
   createdAt          DateTime     @default(now()) @map("created_at")
   agreedAt           DateTime?    @map("agreed_at")
 
@@ -571,6 +578,7 @@ model Sprint {
 enum SprintStatus {
   proposed
   agreed
+  review
   completed
   cancelled
 }

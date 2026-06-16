@@ -346,6 +346,31 @@ export async function cancelSprintAction(sprintId: string): Promise<{ ok?: true;
     return { error: (e as Error).message }
   }
 }
+// review / acceptance — the contractor delivers, the client accepts or requests changes
+export async function submitSprintAction(sprintId: string, note: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('sprint.submit', { sprintId, note })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function acceptSprintAction(sprintId: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('sprint.accept', { sprintId })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function requestSprintChangesAction(sprintId: string, note: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('sprint.requestChanges', { sprintId, note })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
 
 // ── Stand-ups (agile ceremony) ────────────────────────────────────────────────────────
 export async function postStandupAction(contractId: string, input: { done: string; next: string; blockers?: string }): Promise<{ ok?: true; error?: string }> {

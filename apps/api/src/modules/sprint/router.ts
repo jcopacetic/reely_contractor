@@ -4,6 +4,7 @@ import * as sprint from './store'
 
 const itemsInput = z.array(z.object({ title: z.string().min(1).max(200), effortPoints: z.number().int().min(0).max(1000) })).min(1).max(50)
 const ttd = z.number().int().min(1).max(365)
+const note = z.string().max(4000)
 
 /** Board provider seam — the client negotiates sprints (acts as the client role; boardRef-scoped). */
 const providerRouter = router({
@@ -12,6 +13,8 @@ const providerRouter = router({
   edit: serviceProcedure.input(z.object({ contractRef: z.string().uuid(), sprintId: z.string().uuid(), items: itemsInput, ttdDays: ttd })).mutation(({ input }) => sprint.providerEdit(input.contractRef, input.sprintId, { items: input.items, ttdDays: input.ttdDays })),
   approve: serviceProcedure.input(z.object({ contractRef: z.string().uuid(), sprintId: z.string().uuid() })).mutation(({ input }) => sprint.providerApprove(input.contractRef, input.sprintId)),
   cancel: serviceProcedure.input(z.object({ contractRef: z.string().uuid(), sprintId: z.string().uuid() })).mutation(({ input }) => sprint.providerCancel(input.contractRef, input.sprintId)),
+  accept: serviceProcedure.input(z.object({ contractRef: z.string().uuid(), sprintId: z.string().uuid() })).mutation(({ input }) => sprint.providerAccept(input.contractRef, input.sprintId)),
+  requestChanges: serviceProcedure.input(z.object({ contractRef: z.string().uuid(), sprintId: z.string().uuid(), note })).mutation(({ input }) => sprint.providerRequestChanges(input.contractRef, input.sprintId, input.note)),
 })
 
 /** sprint tRPC surface — propose / counter-edit / approve / cancel + list (vetted contractor participant) + the
@@ -22,5 +25,8 @@ export const sprintRouter = router({
   edit: vettedProcedure.input(z.object({ sprintId: z.string().uuid(), items: itemsInput, ttdDays: ttd })).mutation(({ ctx, input }) => sprint.edit(ctx.clerkUserId, input.sprintId, { items: input.items, ttdDays: input.ttdDays })),
   approve: vettedProcedure.input(z.object({ sprintId: z.string().uuid() })).mutation(({ ctx, input }) => sprint.approve(ctx.clerkUserId, input.sprintId)),
   cancel: vettedProcedure.input(z.object({ sprintId: z.string().uuid() })).mutation(({ ctx, input }) => sprint.cancel(ctx.clerkUserId, input.sprintId)),
+  submit: vettedProcedure.input(z.object({ sprintId: z.string().uuid(), note })).mutation(({ ctx, input }) => sprint.submit(ctx.clerkUserId, input.sprintId, input.note)),
+  accept: vettedProcedure.input(z.object({ sprintId: z.string().uuid() })).mutation(({ ctx, input }) => sprint.accept(ctx.clerkUserId, input.sprintId)),
+  requestChanges: vettedProcedure.input(z.object({ sprintId: z.string().uuid(), note })).mutation(({ ctx, input }) => sprint.requestChanges(ctx.clerkUserId, input.sprintId, input.note)),
   provider: providerRouter,
 })
