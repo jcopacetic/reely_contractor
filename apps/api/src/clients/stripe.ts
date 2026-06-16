@@ -74,6 +74,23 @@ export async function attachDefaultPaymentMethod(customerId: string, paymentMeth
   return { brand: pm.card?.brand ?? null, last4: pm.card?.last4 ?? null }
 }
 
+/** A hosted Stripe Checkout session (SETUP mode) to collect + save a card — no frontend Stripe deps needed,
+ *  the card is entered on Stripe's page. On completion Stripe fires `setup_intent.succeeded` (handled by the
+ *  webhook → saved as the customer's default). Stub → the return URL with a marker. */
+export async function createSetupCheckout(customerId: string, returnUrl: string): Promise<{ url: string }> {
+  const sep = returnUrl.includes('?') ? '&' : '?'
+  const s = stripe()
+  if (!s) return { url: `${returnUrl}${sep}card=stub` }
+  const session = await s.checkout.sessions.create({
+    mode: 'setup',
+    customer: customerId,
+    payment_method_types: ['card'],
+    success_url: `${returnUrl}${sep}card=added`,
+    cancel_url: `${returnUrl}${sep}card=cancelled`,
+  })
+  return { url: session.url ?? returnUrl }
+}
+
 /**
  * Platform-initiated charge to the client, off-session against their saved card. Stub → a synthetic
  * PaymentIntent id (no money moves). Returns a status the cycle engine acts on:

@@ -10,6 +10,10 @@ const providerRouter = router({
   setupIntent: serviceProcedure
     .input(z.object({ clientUserId: z.string().min(1), email: z.string().email().optional() }))
     .mutation(({ input }) => payments.ensureClientSetupIntent(input.clientUserId, input.email)),
+  // Hosted card collection — returns a Stripe Checkout (setup-mode) URL for the client to enter a card on.
+  setupCheckout: serviceProcedure
+    .input(z.object({ clientUserId: z.string().min(1), email: z.string().email().optional(), returnUrl: z.string().url() }))
+    .mutation(({ input }) => payments.ensureClientSetupCheckout(input.clientUserId, input.email, input.returnUrl)),
   billingStatus: serviceProcedure.input(z.object({ clientUserId: z.string().min(1) })).query(({ input }) => payments.clientBillingStatus(input.clientUserId)),
 })
 

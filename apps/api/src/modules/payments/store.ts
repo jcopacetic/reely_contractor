@@ -8,7 +8,7 @@ import type Stripe from 'stripe'
 import { prisma } from '@contractor/db'
 import { emit } from '../../events'
 import { env } from '../../env'
-import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured, createCustomer, createSetupIntent, attachDefaultPaymentMethod } from '../../clients/stripe'
+import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured, createCustomer, createSetupIntent, createSetupCheckout, attachDefaultPaymentMethod } from '../../clients/stripe'
 
 export const DISPUTE_WINDOW_DAYS = 7
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -172,6 +172,17 @@ export async function ensureClientSetupIntent(clientUserId: string, email?: stri
   }
   const si = await createSetupIntent(billing.stripeCustomerId)
   return { clientSecret: si.clientSecret }
+}
+
+/** Ensure the client's Stripe customer, then return a hosted Checkout (setup-mode) URL to collect + save a card.
+ *  The simplest collection path — no frontend Stripe deps; the card lands via the setup_intent.succeeded webhook. */
+export async function ensureClientSetupCheckout(clientUserId: string, email: string | undefined, returnUrl: string): Promise<{ url: string }> {
+  let billing = await prisma.clientBilling.findUnique({ where: { clientUserId }, select: { stripeCustomerId: true } })
+  if (!billing) {
+    const { customerId } = await createCustomer(clientUserId, email)
+    billing = await prisma.clientBilling.create({ data: { clientUserId, stripeCustomerId: customerId }, select: { stripeCustomerId: true } })
+  }
+  return createSetupCheckout(billing.stripeCustomerId, returnUrl)
 }
 
 /** Whether a client has a saved card on file (+ brand/last4 for display). Board shows "card on file" or prompts. */

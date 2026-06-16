@@ -49,10 +49,11 @@ The contractor BACKEND for this is now built (migration `10_client_billing`, app
 
 **Two things still needed to actually collect a card:**
 1. **Subscribe the webhook to `setup_intent.succeeded`** (alongside the §3 events).
-2. **The Board collection UI** — Board mounts Stripe Elements with the platform **publishable** key +
-   the SetupIntent client secret (from `ctx.contractor.setupIntent`) so the client enters their card. This is
-   the Board-side follow-up: add `@stripe/stripe-js` + `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` on Board web and a
-   provider passthrough on the contractor client.
+2. **The Board collection UI** — uses a hosted Stripe **Checkout (setup-mode)** URL from
+   `payments.provider.setupCheckout` (no frontend Stripe deps / publishable key needed): the client enters
+   their card on Stripe's page and is redirected back to the work area. (Built on the Board side.) An inline
+   Elements alternative also exists (`payments.provider.setupIntent` → a SetupIntent client secret) if ever
+   wanted.
 
 Until a card is collected, cycles simply don't charge (safe) — so run everything else in test mode first.
 
