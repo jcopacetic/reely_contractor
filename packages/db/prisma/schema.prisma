@@ -509,9 +509,11 @@ model Contract {
   title            String
   rateType         BudgetType     @map("rate_type")
   rateAmount       Decimal        @map("rate_amount") @db.Decimal(12, 2)
-  status           ContractStatus @default(active)
-  definitionOfDone String?        @map("definition_of_done") @db.Text // agreed acceptance bar (contractor drafts; mutual-lock later)
-  startedAt        DateTime       @default(now()) @map("started_at")
+  status            ContractStatus @default(active)
+  definitionOfDone  String?        @map("definition_of_done") @db.Text // agreed acceptance bar (contractor drafts; mutual-lock later)
+  standupRequestedAt DateTime?     @map("standup_requested_at") // set when the client requests a stand-up; cleared when one is posted
+  standupCadence    String?        @map("standup_cadence") // the client's cadence preference (daily/weekdays/weekly/…), advisory
+  startedAt         DateTime       @default(now()) @map("started_at")
   endedAt          DateTime?      @map("ended_at")
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")

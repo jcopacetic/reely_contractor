@@ -27,6 +27,8 @@ export type ContractView = {
   rateAmount: number
   status: ContractStatus
   definitionOfDone: string | null
+  standupRequestedAt: string | null
+  standupCadence: string | null
   startedAt: string
   endedAt: string | null
   role: 'client' | 'contractor'
@@ -81,7 +83,7 @@ export async function createFromBid(bidId: string, boardRef?: string | null, req
 }
 
 // ── reads (participant-scoped) ────────────────────────────────────────────────────
-function toView(c: { id: string; listingId: string | null; clientUserId: string; contractorUserId: string; boardRef: string | null; title: string; rateType: string; rateAmount: unknown; status: string; definitionOfDone: string | null; startedAt: Date; endedAt: Date | null; listing: { title: string } | null; items?: Parameters<typeof toItem>[0][] }, viewerUserId: string): ContractView {
+function toView(c: { id: string; listingId: string | null; clientUserId: string; contractorUserId: string; boardRef: string | null; title: string; rateType: string; rateAmount: unknown; status: string; definitionOfDone: string | null; standupRequestedAt: Date | null; standupCadence: string | null; startedAt: Date; endedAt: Date | null; listing: { title: string } | null; items?: Parameters<typeof toItem>[0][] }, viewerUserId: string): ContractView {
   return {
     id: c.id,
     listingId: c.listingId,
@@ -94,6 +96,8 @@ function toView(c: { id: string; listingId: string | null; clientUserId: string;
     rateAmount: Number(c.rateAmount),
     status: c.status as ContractStatus,
     definitionOfDone: c.definitionOfDone,
+    standupRequestedAt: c.standupRequestedAt ? c.standupRequestedAt.toISOString() : null,
+    standupCadence: c.standupCadence,
     startedAt: c.startedAt.toISOString(),
     endedAt: c.endedAt ? c.endedAt.toISOString() : null,
     role: c.contractorUserId === viewerUserId ? 'contractor' : 'client',

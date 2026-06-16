@@ -1,10 +1,12 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Loader2, MessageSquareText, Send } from 'lucide-react'
+import { Loader2, MessageSquareText, Send, BellRing } from 'lucide-react'
 import { postStandupAction } from '@/app/contractor/actions'
 
 export type Standup = { id: string; byUserId: string; done: string; next: string; blockers: string | null; createdAt: string; fromMe: boolean }
+
+const CADENCE_LABEL: Record<string, string> = { daily: 'Daily', weekdays: 'Weekdays', '2-3x_week': '2–3× / week', weekly: 'Weekly' }
 
 function fmt(iso: string): string {
   try {
@@ -18,8 +20,9 @@ function fmt(iso: string): string {
  * Stand-ups on a contract — structured progress updates (done / next / blockers). v1: the contractor posts;
  * both parties see the history. The client-request/cadence + chat-post + billing gate land in later tasks.
  */
-export function StandupPanel({ contractId, role, initial }: { contractId: string; role: 'client' | 'contractor'; initial: Standup[] }) {
+export function StandupPanel({ contractId, role, initial, requestedAt, cadence }: { contractId: string; role: 'client' | 'contractor'; initial: Standup[]; requestedAt?: string | null; cadence?: string | null }) {
   const [rows, setRows] = useState(initial)
+  const [dismissedRequest, setDismissedRequest] = useState(false)
   const [done, setDone] = useState('')
   const [next, setNext] = useState('')
   const [blockers, setBlockers] = useState('')
@@ -42,6 +45,7 @@ export function StandupPanel({ contractId, role, initial }: { contractId: string
       setDone('')
       setNext('')
       setBlockers('')
+      setDismissedRequest(true) // posting fulfills the request
     })
   }
 
@@ -50,7 +54,17 @@ export function StandupPanel({ contractId, role, initial }: { contractId: string
       <h2 className="mb-1 flex items-center gap-2 font-display text-lg font-semibold">
         <MessageSquareText className="size-4 text-muted-foreground" /> Stand-ups
       </h2>
-      <p className="mb-4 text-sm text-muted-foreground">Structured progress updates on this contract — what got done, what&rsquo;s next, and any blockers.</p>
+      <p className="mb-3 text-sm text-muted-foreground">
+        Structured progress updates on this contract — what got done, what&rsquo;s next, and any blockers.
+        {cadence && CADENCE_LABEL[cadence] && <span className="ml-1 text-foreground">Cadence: <span className="font-medium">{CADENCE_LABEL[cadence]}</span>.</span>}
+      </p>
+
+      {role === 'contractor' && requestedAt && !dismissedRequest && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+          <BellRing className="size-4 shrink-0 text-primary" />
+          <span className="text-foreground">The client requested a stand-up — post one below.</span>
+        </div>
+      )}
 
       {role === 'contractor' && (
         <div className="mb-5 space-y-3 rounded-lg border border-border bg-background p-4">

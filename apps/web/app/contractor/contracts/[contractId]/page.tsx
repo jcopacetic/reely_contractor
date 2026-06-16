@@ -14,7 +14,7 @@ type Item = { id: string; kind: 'milestone' | 'scope_add' | 'deliverable' | 'not
 type Contract = {
   id: string; title: string; listingTitle: string | null; boardRef: string | null
   clientUserId: string; contractorUserId: string; rateType: 'hourly' | 'fixed'; rateAmount: number
-  status: string; definitionOfDone: string | null; role: 'client' | 'contractor'; startedAt: string; endedAt: string | null; items: Item[]
+  status: string; definitionOfDone: string | null; standupRequestedAt: string | null; standupCadence: string | null; role: 'client' | 'contractor'; startedAt: string; endedAt: string | null; items: Item[]
 }
 
 const EMPTY_TIME: TimeSummary = { entries: [], approvedSeconds: 0, pendingSeconds: 0, disputedSeconds: 0, runningEntryId: null }
@@ -36,7 +36,7 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
         <div className="mt-4 space-y-5">
           <ContractDetail contract={contract} />
           <DefinitionOfDonePanel contractId={contract.id} role={contract.role} initial={contract.definitionOfDone} />
-          <StandupPanel contractId={contract.id} role={contract.role} initial={standups ?? []} />
+          <StandupPanel contractId={contract.id} role={contract.role} initial={standups ?? []} requestedAt={contract.standupRequestedAt} cadence={contract.standupCadence} />
           <TimePanel contractId={contract.id} role={contract.role} rateType={contract.rateType} rateAmount={contract.rateAmount} active={contract.status === 'active'} initial={time ?? EMPTY_TIME} />
           <BillingPanel cycles={cycles ?? []} role={contract.role} />
           <ContractReviews reviews={reviews ?? []} role={contract.role} />

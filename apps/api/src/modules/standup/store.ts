@@ -23,6 +23,8 @@ export async function post(viewerUserId: string, contractId: string, input: { do
     data: { contractId, byUserId: viewerUserId, done: input.done.trim(), next: input.next.trim(), blockers: input.blockers?.trim() || null },
     select: { id: true },
   })
+  // Posting fulfills any open client request.
+  await prisma.contract.update({ where: { id: contractId }, data: { standupRequestedAt: null } })
   await emit('standup', 'standup.posted', viewerUserId, { contractId, standupId: s.id }, 'contractor')
   return { id: s.id }
 }
@@ -55,4 +57,25 @@ export async function providerList(contractRef: string): Promise<StandupProvider
     select: { id: true, done: true, next: true, blockers: true, createdAt: true },
   })
   return rows.map((r) => ({ id: r.id, done: r.done, next: r.next, blockers: r.blockers, createdAt: r.createdAt.toISOString() }))
+}
+
+/** The client (Board) requests a stand-up — a flag the contractor sees, cleared when one is posted. boardRef-scoped. */
+export async function providerRequest(contractRef: string): Promise<{ ok: true } | { error: string }> {
+  const c = await prisma.contract.findUnique({ where: { id: contractRef }, select: { boardRef: true } })
+  if (!c) return { error: 'not_found' }
+  if (!c.boardRef) return { error: 'forbidden' }
+  await prisma.contract.update({ where: { id: contractRef }, data: { standupRequestedAt: new Date() } })
+  await emit('standup', 'standup.requested', 'system', { contractId: contractRef }, 'client')
+  return { ok: true }
+}
+
+const CADENCES = new Set(['daily', 'weekdays', '2-3x_week', 'weekly'])
+/** The client sets a stand-up cadence preference (advisory; '' clears it). boardRef-scoped. */
+export async function providerSetCadence(contractRef: string, cadence: string): Promise<{ ok: true } | { error: string }> {
+  const c = await prisma.contract.findUnique({ where: { id: contractRef }, select: { boardRef: true } })
+  if (!c) return { error: 'not_found' }
+  if (!c.boardRef) return { error: 'forbidden' }
+  const value = CADENCES.has(cadence) ? cadence : null
+  await prisma.contract.update({ where: { id: contractRef }, data: { standupCadence: value } })
+  return { ok: true }
 }

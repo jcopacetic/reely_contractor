@@ -2,9 +2,11 @@ import { z } from 'zod'
 import { router, vettedProcedure, serviceProcedure } from '../../trpc/trpc'
 import * as standup from './store'
 
-/** Board provider seam — the client reads a Board-originated contract's stand-ups (read-only, boardRef-scoped). */
+/** Board provider seam — the client reads stand-ups + requests one + sets a cadence (boardRef-scoped). */
 const providerRouter = router({
   list: serviceProcedure.input(z.object({ contractRef: z.string().uuid() })).query(({ input }) => standup.providerList(input.contractRef)),
+  request: serviceProcedure.input(z.object({ contractRef: z.string().uuid() })).mutation(({ input }) => standup.providerRequest(input.contractRef)),
+  setCadence: serviceProcedure.input(z.object({ contractRef: z.string().uuid(), cadence: z.string().max(40) })).mutation(({ input }) => standup.providerSetCadence(input.contractRef, input.cadence)),
 })
 
 /** standup tRPC surface — post + list stand-ups on a contract (vetted contractor participant) + the Board provider
