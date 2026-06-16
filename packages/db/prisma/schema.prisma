@@ -524,6 +524,7 @@ model Contract {
   reviews      ContractorReview[]
   standups     Standup[]
   sprints      Sprint[]
+  blockers     Blocker[]
 
   @@index([contractorUserId])
   @@index([clientUserId])
@@ -581,6 +582,32 @@ enum SprintStatus {
   review
   completed
   cancelled
+}
+
+/// An agile blocker on a contract — work is stalled (the contractor is waiting on the client, or either party
+/// flags an impediment). While a blocker is OPEN, billable clock is paused; the [createdAt, resolvedAt] interval
+/// is the paused window (the billing/timer exclusion ties in later). Either participant can raise or resolve.
+model Blocker {
+  id             String        @id @default(uuid()) @db.Uuid
+  contractId     String        @map("contract_id") @db.Uuid
+  contract       Contract      @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  sprintId       String?       @map("sprint_id") @db.Uuid // optional: scope a blocker to a sprint (reference, not enforced)
+  status         BlockerStatus @default(open)
+  reason         String        @db.Text // what is blocking the work
+  raisedByRole   String        @map("raised_by_role") // 'client' | 'contractor'
+  raisedByUserId String        @map("raised_by_user_id")
+  resolutionNote String?       @map("resolution_note") @db.Text
+  resolvedByRole String?       @map("resolved_by_role")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  resolvedAt     DateTime?     @map("resolved_at")
+
+  @@index([contractId, status])
+  @@map("blocker")
+}
+
+enum BlockerStatus {
+  open
+  resolved
 }
 
 /// A client's review of the contractor on a contract. `weekly` reviews are private until the contractor

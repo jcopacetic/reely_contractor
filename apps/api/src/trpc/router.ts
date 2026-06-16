@@ -13,6 +13,7 @@ import { paymentsRouter } from '../modules/payments/router'
 import { reviewsRouter } from '../modules/reviews/router'
 import { standupRouter } from '../modules/standup/router'
 import { sprintRouter } from '../modules/sprint/router'
+import { blockerRouter } from '../modules/blocker/router'
 
 /**
  * Contractor api router. health + contractor-identity (apply → admin approve → vetted, Clerk role mirror)
@@ -38,6 +39,7 @@ export const appRouter = router({
   reviews: reviewsRouter,
   standup: standupRouter,
   sprint: sprintRouter,
+  blocker: blockerRouter,
 })
 
 export type AppRouter = typeof appRouter

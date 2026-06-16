@@ -372,6 +372,24 @@ export async function requestSprintChangesAction(sprintId: string, note: string)
   }
 }
 
+// ── Blockers (agile ceremony — stalled work; pauses billable clock) ──────────────────────
+export async function raiseBlockerAction(contractId: string, reason: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ id?: string; error?: string }>('blocker.raise', { contractId, reason })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function resolveBlockerAction(blockerId: string, note: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('blocker.resolve', { blockerId, note })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 // ── Stand-ups (agile ceremony) ────────────────────────────────────────────────────────
 export async function postStandupAction(contractId: string, input: { done: string; next: string; blockers?: string }): Promise<{ ok?: true; error?: string }> {
   try {
