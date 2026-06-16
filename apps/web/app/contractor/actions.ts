@@ -302,6 +302,16 @@ export async function updateContractStatusAction(contractId: string, status: 'ac
   }
 }
 
+// ── Stand-ups (agile ceremony) ────────────────────────────────────────────────────────
+export async function postStandupAction(contractId: string, input: { done: string; next: string; blockers?: string }): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ id?: string; error?: string }>('standup.post', { contractId, ...input })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 // ── Time tracking ───────────────────────────────────────────────────────────────────
 type TimeResult = { entryId?: string; ok?: true; durationSeconds?: number; error?: string }
 

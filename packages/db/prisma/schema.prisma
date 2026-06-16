@@ -519,12 +519,29 @@ model Contract {
   timeEntries  TimeEntry[]
   billingCycles BillingCycle[]
   reviews      ContractorReview[]
+  standups     Standup[]
 
   @@index([contractorUserId])
   @@index([clientUserId])
   @@index([status])
   @@index([boardRef])
   @@map("contract")
+}
+
+/// An agile stand-up on a contract — a structured progress update (done / next / blockers) posted by a
+/// participant. The first of the chat-mediated agile ceremonies; participant-scoped to the contract.
+model Standup {
+  id         String   @id @default(uuid()) @db.Uuid
+  contractId String   @map("contract_id") @db.Uuid
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  byUserId   String   @map("by_user_id") // who posted it (the contractor in v1)
+  done       String   @db.Text
+  next       String   @db.Text
+  blockers   String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([contractId, createdAt])
+  @@map("standup")
 }
 
 /// A client's review of the contractor on a contract. `weekly` reviews are private until the contractor
