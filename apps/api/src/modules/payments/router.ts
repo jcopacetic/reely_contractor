@@ -6,6 +6,11 @@ import * as payments from './store'
  *  Service-key + boardRef-scoped (never an unscoped collection). Read-only; charges stay platform-initiated. */
 const providerRouter = router({
   cycles: serviceProcedure.input(z.object({ contractRef: z.string().uuid() })).query(({ input }) => payments.providerListCycles(input.contractRef)),
+  // Client card-on-file: Board collects/saves the client's card against this SetupIntent, then reads status.
+  setupIntent: serviceProcedure
+    .input(z.object({ clientUserId: z.string().min(1), email: z.string().email().optional() }))
+    .mutation(({ input }) => payments.ensureClientSetupIntent(input.clientUserId, input.email)),
+  billingStatus: serviceProcedure.input(z.object({ clientUserId: z.string().min(1) })).query(({ input }) => payments.clientBillingStatus(input.clientUserId)),
 })
 
 /** payments tRPC surface — the contractor's Connect onboarding + a contract's billing cycles + cycle disputes.

@@ -473,6 +473,19 @@ drop policy if exists cd_party on cycle_dispute
 create policy cd_party on cycle_dispute for all using (billing_cycle_id in (select bc.id from billing_cycle bc join contract c on c.id = bc.contract_id where current_setting('app.actor_user', true) in (c.client_user_id, c.contractor_user_id)))
 ;
 
+-- client_billing: the client owns their saved-card record; system/admin all. Writes are system/provider-driven
+-- (SetupIntent + webhook) via the owner connection; the client may read their own status. Backstop.
+alter table client_billing enable row level security
+;
+drop policy if exists cb_admin on client_billing
+;
+create policy cb_admin on client_billing for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists cb_owner on client_billing
+;
+create policy cb_owner on client_billing for select using (client_user_id = current_setting('app.actor_user', true))
+;
+
 -- reviews: a contract's participants read/write; the contractor manages their own; system/admin all. Backstop.
 alter table contractor_review enable row level security
 ;

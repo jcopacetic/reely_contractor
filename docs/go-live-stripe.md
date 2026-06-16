@@ -35,12 +35,26 @@ first, verify a full cycle, then repeat with live keys.*
 4. Copy the endpoint's **signing secret** (`whsec_…`) → `STRIPE_WEBHOOK_SECRET` on `reely_contractor_api`.
    - Until this is set the webhook **fails closed** (503) — correct, but it means no live reconciliation.
 
-## 4. Client card-on-file (the remaining build, NOT yet implemented)
-The charge is **platform-initiated** to the client after the dispute window, which needs the client to have a
-**Stripe customer + saved payment method**. That collection flow (a SetupIntent / billing-details step for the
-Board client, storing a `stripe_customer_id`) is the **one deferred piece** — `chargeClient` currently creates a
-PaymentIntent shell without a saved method. Build + connect this before enabling live charges; until then keep
-Stripe in test mode or leave `STRIPE_SECRET_KEY` unset (stub) so no real charge is attempted.
+## 4. Client card-on-file (backend BUILT; Board collection UI remaining)
+Cycle charges are **platform-initiated** off-session, so the client needs a **Stripe customer + saved card**.
+The contractor BACKEND for this is now built (migration `10_client_billing`, applied to prod):
+- `client_billing` table — a Stripe customer + default payment-method id per client (opaque clerk id); no card
+  data is stored, only the customer id + pm id + brand/last4 for display.
+- `payments.provider.setupIntent({ clientUserId, email? })` → a SetupIntent client secret; and
+  `payments.provider.billingStatus({ clientUserId })` → `{ hasCardOnFile, brand, last4 }`.
+- The **`setup_intent.succeeded` webhook** saves the card as the customer's default (status → `ready`).
+- `chargeClient` now charges the saved card off-session (`confirm: true`). A cycle with **no card on file is
+  left unbilled** and retries on a later tick once a card is added (safe); a declined card records a `failed`
+  charge for ops (not auto-retried).
+
+**Two things still needed to actually collect a card:**
+1. **Subscribe the webhook to `setup_intent.succeeded`** (alongside the §3 events).
+2. **The Board collection UI** — Board mounts Stripe Elements with the platform **publishable** key +
+   the SetupIntent client secret (from `ctx.contractor.setupIntent`) so the client enters their card. This is
+   the Board-side follow-up: add `@stripe/stripe-js` + `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` on Board web and a
+   provider passthrough on the contractor client.
+
+Until a card is collected, cycles simply don't charge (safe) — so run everything else in test mode first.
 
 ## 5. Verify a full cycle (test mode)
 1. Onboard a test contractor via **Payouts → Connect Stripe** (use Stripe's test KYC values). Confirm

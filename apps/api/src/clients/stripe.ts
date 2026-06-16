@@ -48,20 +48,73 @@ export async function accountStatus(accountId: string): Promise<{ chargesEnabled
   return { chargesEnabled: Boolean(a.charges_enabled), payoutsEnabled: Boolean(a.payouts_enabled), kyc }
 }
 
-/** Platform-initiated charge to the client. Stub → a synthetic PaymentIntent id (no money moves). */
-export async function chargeClient(input: { clientUserId: string; amountCents: number; idempotencyKey: string; description: string }): Promise<{ paymentIntentId: string }> {
+// ── client card-on-file (a Stripe customer + a SetupIntent-saved card, so cycle charges have a method) ──
+/** Create a Stripe customer for a client. Stub → a synthetic customer id. No card data is stored by us. */
+export async function createCustomer(clientUserId: string, email?: string): Promise<{ customerId: string }> {
+  const s = stripe()
+  if (!s) return { customerId: `cus_stub_${h(clientUserId)}` }
+  const c = await s.customers.create({ metadata: { clientUserId }, ...(email ? { email } : {}) })
+  return { customerId: c.id }
+}
+
+/** A SetupIntent to collect + save a card off-session for future cycle charges. Stub → a synthetic secret. */
+export async function createSetupIntent(customerId: string): Promise<{ clientSecret: string; setupIntentId: string }> {
+  const s = stripe()
+  if (!s) return { clientSecret: `seti_stub_${h(customerId)}_secret`, setupIntentId: `seti_stub_${h(customerId)}` }
+  const si = await s.setupIntents.create({ customer: customerId, usage: 'off_session', payment_method_types: ['card'] })
+  return { clientSecret: si.client_secret ?? '', setupIntentId: si.id }
+}
+
+/** Set a payment method as the customer's default + read its brand/last4 for display. Stub → a test card. */
+export async function attachDefaultPaymentMethod(customerId: string, paymentMethodId: string): Promise<{ brand: string | null; last4: string | null }> {
+  const s = stripe()
+  if (!s) return { brand: 'visa', last4: '4242' }
+  await s.customers.update(customerId, { invoice_settings: { default_payment_method: paymentMethodId } })
+  const pm = await s.paymentMethods.retrieve(paymentMethodId)
+  return { brand: pm.card?.brand ?? null, last4: pm.card?.last4 ?? null }
+}
+
+/**
+ * Platform-initiated charge to the client, off-session against their saved card. Stub → a synthetic
+ * PaymentIntent id (no money moves). Returns a status the cycle engine acts on:
+ *  - no_payment_method → no card on file; the cycle stays unbilled (retries once a card is added)
+ *  - pending           → live charge created (the webhook flips it to succeeded + opens the payout)
+ *  - failed            → the saved card declined / needs action (ops follow-up; not auto-retried)
+ */
+export async function chargeClient(input: {
+  clientUserId: string
+  customerId: string | null
+  paymentMethodId: string | null
+  amountCents: number
+  idempotencyKey: string
+  description: string
+}): Promise<{ paymentIntentId: string | null; status: 'pending' | 'succeeded' | 'no_payment_method' | 'failed' }> {
   const s = stripe()
   if (!s) {
     console.log(`[stripe stub] would charge ${input.clientUserId} $${(input.amountCents / 100).toFixed(2)} — ${input.description}`)
-    return { paymentIntentId: `pi_stub_${h(input.idempotencyKey)}` }
+    return { paymentIntentId: `pi_stub_${h(input.idempotencyKey)}`, status: 'succeeded' }
   }
-  // A live charge needs the client's saved payment method (a Stripe customer + card on file) — that collection
-  // flow is the go-live follow-up. For now create the PaymentIntent shell, idempotency-keyed.
-  const pi = await s.paymentIntents.create(
-    { amount: input.amountCents, currency: 'usd', description: input.description, metadata: { clientUserId: input.clientUserId } },
-    { idempotencyKey: input.idempotencyKey },
-  )
-  return { paymentIntentId: pi.id }
+  if (!input.customerId || !input.paymentMethodId) return { paymentIntentId: null, status: 'no_payment_method' }
+  try {
+    const pi = await s.paymentIntents.create(
+      {
+        amount: input.amountCents,
+        currency: 'usd',
+        description: input.description,
+        customer: input.customerId,
+        payment_method: input.paymentMethodId,
+        off_session: true,
+        confirm: true,
+        metadata: { clientUserId: input.clientUserId },
+      },
+      { idempotencyKey: input.idempotencyKey },
+    )
+    // The webhook (payment_intent.succeeded) is the single settlement path, even when confirm returns succeeded.
+    return { paymentIntentId: pi.id, status: 'pending' }
+  } catch (e) {
+    const pi = (e as Stripe.errors.StripeError).payment_intent
+    return { paymentIntentId: pi?.id ?? null, status: 'failed' }
+  }
 }
 
 /** Transfer the net to the contractor's connected account. Stub → a synthetic transfer id. */

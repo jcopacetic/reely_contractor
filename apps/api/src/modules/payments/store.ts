@@ -8,7 +8,7 @@ import type Stripe from 'stripe'
 import { prisma } from '@contractor/db'
 import { emit } from '../../events'
 import { env } from '../../env'
-import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured } from '../../clients/stripe'
+import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured, createCustomer, createSetupIntent, attachDefaultPaymentMethod } from '../../clients/stripe'
 
 export const DISPUTE_WINDOW_DAYS = 7
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -80,10 +80,26 @@ export async function chargeDueCycles(now = new Date()): Promise<{ charged: numb
     const take = Number(c.takeRateAmount)
     const net = round2(gross - take)
     const idempotencyKey = `cycle:${c.id}`
-    const pi = await chargeClient({ clientUserId: c.contract.clientUserId, amountCents: cents(gross), idempotencyKey, description: `Reely contractor work — cycle ${c.id}` })
     const live = stripeConfigured()
+    // Charge the client's saved card off-session. Stub mode ignores the card and always "succeeds".
+    const billing = live ? await prisma.clientBilling.findUnique({ where: { clientUserId: c.contract.clientUserId }, select: { stripeCustomerId: true, defaultPaymentMethodId: true, status: true } }) : null
+    const hasCard = billing?.status === 'ready' && !!billing.defaultPaymentMethodId
+    const res = await chargeClient({
+      clientUserId: c.contract.clientUserId,
+      customerId: hasCard ? billing!.stripeCustomerId : null,
+      paymentMethodId: hasCard ? billing!.defaultPaymentMethodId : null,
+      amountCents: cents(gross),
+      idempotencyKey,
+      description: `Reely contractor work — cycle ${c.id}`,
+    })
+    if (res.status === 'no_payment_method') {
+      // No card on file — leave the cycle in its window; it bills on a later tick once the client adds one.
+      await emit('payments', 'charge.awaiting_payment_method', c.contract.clientUserId, { cycleId: c.id }, 'system')
+      continue
+    }
+    const chargeStatus = !live ? 'succeeded' : res.status === 'failed' ? 'failed' : 'pending'
     const charge = await prisma.charge.create({
-      data: { billingCycleId: c.id, stripePaymentIntentId: pi.paymentIntentId, clientUserId: c.contract.clientUserId, contractorUserId: c.contract.contractorUserId, grossAmount: gross, takeRateAmount: take, netAmount: net, status: live ? 'pending' : 'succeeded', idempotencyKey, succeededAt: live ? null : new Date() },
+      data: { billingCycleId: c.id, stripePaymentIntentId: res.paymentIntentId, clientUserId: c.contract.clientUserId, contractorUserId: c.contract.contractorUserId, grossAmount: gross, takeRateAmount: take, netAmount: net, status: chargeStatus, idempotencyKey, succeededAt: chargeStatus === 'succeeded' ? new Date() : null },
       select: { id: true },
     })
     if (!live) {
@@ -142,6 +158,27 @@ export async function providerListCycles(contractRef: string): Promise<CycleView
   if (!c) return { error: 'not_found' }
   if (!c.boardRef) return { error: 'forbidden' }
   return loadCycleViews(contractRef)
+}
+
+// ── client card-on-file (Board calls these via payments.provider.*) ─────────────────────
+/** Ensure the client has a Stripe customer, then return a SetupIntent client secret to collect + save a card
+ *  (off-session, for the weekly cycle charges). Idempotent on the stored customer; the card lands via the
+ *  setup_intent.succeeded webhook. */
+export async function ensureClientSetupIntent(clientUserId: string, email?: string): Promise<{ clientSecret: string }> {
+  let billing = await prisma.clientBilling.findUnique({ where: { clientUserId }, select: { stripeCustomerId: true } })
+  if (!billing) {
+    const { customerId } = await createCustomer(clientUserId, email)
+    billing = await prisma.clientBilling.create({ data: { clientUserId, stripeCustomerId: customerId }, select: { stripeCustomerId: true } })
+  }
+  const si = await createSetupIntent(billing.stripeCustomerId)
+  return { clientSecret: si.clientSecret }
+}
+
+/** Whether a client has a saved card on file (+ brand/last4 for display). Board shows "card on file" or prompts. */
+export async function clientBillingStatus(clientUserId: string): Promise<{ hasCardOnFile: boolean; brand: string | null; last4: string | null }> {
+  const b = await prisma.clientBilling.findUnique({ where: { clientUserId }, select: { status: true, defaultPaymentMethodId: true, cardBrand: true, cardLast4: true } })
+  const hasCardOnFile = !!b && b.status === 'ready' && !!b.defaultPaymentMethodId
+  return { hasCardOnFile, brand: b?.cardBrand ?? null, last4: b?.cardLast4 ?? null }
 }
 
 /** A participant raises a dispute on a cycle still in its window — blocks the charge until an admin resolves. */
@@ -209,6 +246,17 @@ export async function reconcileStripeEvent(event: Stripe.Event): Promise<void> {
       const pi = (event.data.object as Stripe.Dispute).payment_intent
       const piId = typeof pi === 'string' ? pi : pi?.id
       if (piId) await prisma.charge.updateMany({ where: { stripePaymentIntentId: piId }, data: { status: 'refunded' } })
+      return
+    }
+    case 'setup_intent.succeeded': {
+      // The client saved a card — record it as their default payment method for future cycle charges.
+      const si = event.data.object as Stripe.SetupIntent
+      const customerId = typeof si.customer === 'string' ? si.customer : si.customer?.id
+      const pmId = typeof si.payment_method === 'string' ? si.payment_method : si.payment_method?.id
+      if (customerId && pmId) {
+        const card = await attachDefaultPaymentMethod(customerId, pmId)
+        await prisma.clientBilling.updateMany({ where: { stripeCustomerId: customerId }, data: { defaultPaymentMethodId: pmId, cardBrand: card.brand, cardLast4: card.last4, status: 'ready' } })
+      }
       return
     }
     default:

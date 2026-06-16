@@ -737,6 +737,29 @@ model CycleDispute {
   @@map("cycle_dispute")
 }
 
+/// A client's (Board member's) saved Stripe customer + default card, so platform-initiated cycle charges have
+/// a payment method to charge. Keyed by the opaque client Clerk user id. No raw card data is stored — Stripe
+/// holds it; we keep only the customer id, the default payment-method id, and brand/last4 for display.
+model ClientBilling {
+  id                     String              @id @default(uuid()) @db.Uuid
+  clientUserId           String              @unique @map("client_user_id")
+  stripeCustomerId       String              @unique @map("stripe_customer_id")
+  defaultPaymentMethodId String?             @map("default_payment_method_id")
+  cardBrand              String?             @map("card_brand")
+  cardLast4              String?             @map("card_last4")
+  status                 ClientBillingStatus @default(pending)
+  createdAt              DateTime            @default(now()) @map("created_at")
+  updatedAt              DateTime            @updatedAt @map("updated_at")
+
+  @@map("client_billing")
+}
+
+/// pending = a Stripe customer exists but no card yet; ready = a default payment method is saved.
+enum ClientBillingStatus {
+  pending
+  ready
+}
+
 /// Plugin-timer evidence: an activity sample tied to a time_entry (activity %, what they were on, an optional
 /// screenshot stored in R2 by key). The client sees these (time-tracker model); contractors see their own.
 model TimeActivity {
