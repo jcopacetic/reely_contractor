@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Loader2, Check, X, ShieldCheck, UserPlus, Ban, RotateCcw, ExternalLink, Inbox } from 'lucide-react'
+import { Loader2, Check, X, ShieldCheck, UserPlus, Ban, RotateCcw, ExternalLink, Inbox, PlayCircle } from 'lucide-react'
 import {
   approveApplicantAction,
   rejectApplicantAction,
   suspendContractorAction,
   reinstateContractorAction,
   createInviteAction,
+  runBillingCycleAction,
 } from './actions'
 
 type Applicant = {
@@ -63,6 +64,7 @@ export function AdminConsole({ applicants }: { applicants: Applicant[] }) {
       </section>
 
       <ManageContractor />
+      <OpsPanel />
     </main>
   )
 }
@@ -172,6 +174,38 @@ function InvitePanel() {
           </p>
         </div>
       )}
+    </section>
+  )
+}
+
+function OpsPanel() {
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [pending, start] = useTransition()
+
+  function run() {
+    setMsg(null)
+    start(async () => {
+      const r = await runBillingCycleAction()
+      if ('error' in r && r.error) setMsg({ kind: 'err', text: r.error })
+      else setMsg({ kind: 'ok', text: 'Billing cycle enqueued — watch the worker log + the cycle rows.' })
+    })
+  }
+
+  return (
+    <section className="mt-8 rounded-xl border border-border bg-card p-5">
+      <h2 className="mb-1 flex items-center gap-2 font-display text-lg font-semibold">
+        <PlayCircle className="size-4 text-muted-foreground" /> Operations
+      </h2>
+      <p className="mb-3 text-sm text-muted-foreground">Run the weekly billing tick now — sweeps approved time into cycles and charges any past their dispute window. Same job as the Sunday 18:00 UTC cron; idempotent per period, so it&apos;s safe to run anytime.</p>
+      <button
+        type="button"
+        onClick={run}
+        disabled={pending}
+        className="inline-flex h-10 items-center gap-1.5 rounded-md border border-border px-4 text-sm font-medium hover:bg-muted disabled:opacity-60"
+      >
+        {pending ? <Loader2 className="size-4 animate-spin" /> : <PlayCircle className="size-4" />} Run billing cycle now
+      </button>
+      {msg && <p className={`mt-2 text-sm ${msg.kind === 'ok' ? 'text-emerald-700' : 'text-destructive'}`}>{msg.text}</p>}
     </section>
   )
 }

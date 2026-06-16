@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { router, vettedProcedure, adminProcedure, serviceProcedure } from '../../trpc/trpc'
+import { enqueue } from '../../queue'
 import * as payments from './store'
 
 /** Board provider surface — a Board-originated contract's billing cycles (what the client will be billed).
@@ -29,6 +30,12 @@ export const paymentsRouter = router({
   raiseDispute: vettedProcedure.input(z.object({ billingCycleId: z.string().uuid(), reason: z.string().min(1).max(2000) })).mutation(({ ctx, input }) => payments.raiseCycleDispute(ctx.clerkUserId, input.billingCycleId, input.reason)),
   // admin resolution
   resolveDispute: adminProcedure.input(z.object({ disputeId: z.string().uuid(), resolution: z.enum(['charge', 'void']), note: z.string().max(2000).optional() })).mutation(({ input }) => payments.resolveCycleDispute(input.disputeId, input.resolution, input.note)),
+  // admin: fire the weekly billing tick on demand (testing + ops). Enqueues the SAME job the Sunday cron does;
+  // the worker runs the sweep→charge. Idempotent per period, so running it repeatedly is safe.
+  runBillingCycle: adminProcedure.mutation(async () => {
+    await enqueue('payments.billing-cycle', {})
+    return { ok: true as const }
+  }),
   // Board (client) read
   provider: providerRouter,
 })

@@ -49,6 +49,11 @@ export async function reinstateContractorAction(userId: string): Promise<Result>
   return adminMutate('identity.reinstate', { userId })
 }
 
+/** Fire the weekly billing tick on demand (testing + ops). Enqueues the same job the Sunday cron runs. */
+export async function runBillingCycleAction(): Promise<Result> {
+  return adminMutate('payments.runBillingCycle', {})
+}
+
 /** Mint an invite code for an email (admin shares it; the applicant redeems on /contractor/apply). */
 export async function createInviteAction(email: string): Promise<{ code?: string; error?: string }> {
   if (!(await isAdmin())) return { error: 'Admins only.' }
