@@ -302,6 +302,16 @@ export async function updateContractStatusAction(contractId: string, status: 'ac
   }
 }
 
+// ── Definition of Done (agile ceremony) ────────────────────────────────────────────────
+export async function setDefinitionOfDoneAction(contractId: string, text: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('contracts.setDefinitionOfDone', { contractId, text })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 // ── Stand-ups (agile ceremony) ────────────────────────────────────────────────────────
 export async function postStandupAction(contractId: string, input: { done: string; next: string; blockers?: string }): Promise<{ ok?: true; error?: string }> {
   try {

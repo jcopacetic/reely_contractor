@@ -26,6 +26,7 @@ export type ContractView = {
   rateType: BudgetType
   rateAmount: number
   status: ContractStatus
+  definitionOfDone: string | null
   startedAt: string
   endedAt: string | null
   role: 'client' | 'contractor'
@@ -80,7 +81,7 @@ export async function createFromBid(bidId: string, boardRef?: string | null, req
 }
 
 // ── reads (participant-scoped) ────────────────────────────────────────────────────
-function toView(c: { id: string; listingId: string | null; clientUserId: string; contractorUserId: string; boardRef: string | null; title: string; rateType: string; rateAmount: unknown; status: string; startedAt: Date; endedAt: Date | null; listing: { title: string } | null; items?: Parameters<typeof toItem>[0][] }, viewerUserId: string): ContractView {
+function toView(c: { id: string; listingId: string | null; clientUserId: string; contractorUserId: string; boardRef: string | null; title: string; rateType: string; rateAmount: unknown; status: string; definitionOfDone: string | null; startedAt: Date; endedAt: Date | null; listing: { title: string } | null; items?: Parameters<typeof toItem>[0][] }, viewerUserId: string): ContractView {
   return {
     id: c.id,
     listingId: c.listingId,
@@ -92,6 +93,7 @@ function toView(c: { id: string; listingId: string | null; clientUserId: string;
     rateType: c.rateType as BudgetType,
     rateAmount: Number(c.rateAmount),
     status: c.status as ContractStatus,
+    definitionOfDone: c.definitionOfDone,
     startedAt: c.startedAt.toISOString(),
     endedAt: c.endedAt ? c.endedAt.toISOString() : null,
     role: c.contractorUserId === viewerUserId ? 'contractor' : 'client',
@@ -153,6 +155,16 @@ export async function updateStatus(viewerUserId: string, contractId: string, to:
   if (!TRANSITIONS[c.status as ContractStatus].includes(to)) return { error: 'bad_transition' }
   await prisma.contract.update({ where: { id: contractId }, data: { status: to as never, ...(to === 'completed' || to === 'cancelled' ? { endedAt: new Date() } : {}) } })
   await emit('contracts', 'contract.status.changed', viewerUserId, { contractId, to })
+  return { ok: true }
+}
+
+/** Set the contract's Definition of Done (the acceptance bar). Participant-gated; the contractor drafts it,
+ *  both parties see it. A mutual client-agree lock lands with the client-side ceremony surface. */
+export async function setDefinitionOfDone(viewerUserId: string, contractId: string, text: string): Promise<{ ok: true } | { error: string }> {
+  const guard = await assertParticipant(viewerUserId, contractId)
+  if ('error' in guard) return guard
+  await prisma.contract.update({ where: { id: contractId }, data: { definitionOfDone: text.trim().slice(0, 4000) || null } })
+  await emit('contracts', 'contract.dod.set', viewerUserId, { contractId })
   return { ok: true }
 }
 

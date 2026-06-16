@@ -510,6 +510,7 @@ model Contract {
   rateType         BudgetType     @map("rate_type")
   rateAmount       Decimal        @map("rate_amount") @db.Decimal(12, 2)
   status           ContractStatus @default(active)
+  definitionOfDone String?        @map("definition_of_done") @db.Text // agreed acceptance bar (contractor drafts; mutual-lock later)
   startedAt        DateTime       @default(now()) @map("started_at")
   endedAt          DateTime?      @map("ended_at")
   createdAt        DateTime       @default(now()) @map("created_at")

@@ -27,5 +27,7 @@ export const contractsRouter = router({
       return contracts.addItem(ctx.clerkUserId, contractId, item)
     }),
   updateStatus: vettedProcedure.input(z.object({ contractId: z.string().uuid(), status: contractStatus })).mutation(({ ctx, input }) => contracts.updateStatus(ctx.clerkUserId, input.contractId, input.status)),
+  // Definition of Done — the contractor drafts the acceptance bar (mutual-lock lands with the client surface).
+  setDefinitionOfDone: vettedProcedure.input(z.object({ contractId: z.string().uuid(), text: z.string().max(4000) })).mutation(({ ctx, input }) => contracts.setDefinitionOfDone(ctx.clerkUserId, input.contractId, input.text)),
   provider: providerRouter,
 })
