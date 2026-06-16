@@ -390,6 +390,41 @@ export async function resolveBlockerAction(blockerId: string, note: string): Pro
   }
 }
 
+// ── Change-requests (agile ceremony — two-party mid-flight amendment) ─────────────────────
+export type ChangeRequestInput = { kind: 'scope' | 'rate' | 'timeline' | 'other'; title: string; detail: string; proposedRateType?: 'hourly' | 'fixed' | null; proposedRateAmount?: number | null }
+export async function proposeChangeRequestAction(contractId: string, input: ChangeRequestInput): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ id?: string; error?: string }>('changeRequest.propose', { contractId, ...input })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function editChangeRequestAction(changeRequestId: string, input: ChangeRequestInput): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('changeRequest.edit', { changeRequestId, ...input })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function approveChangeRequestAction(changeRequestId: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; agreed?: boolean; error?: string }>('changeRequest.approve', { changeRequestId })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function withdrawChangeRequestAction(changeRequestId: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('changeRequest.withdraw', { changeRequestId })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 // ── Stand-ups (agile ceremony) ────────────────────────────────────────────────────────
 export async function postStandupAction(contractId: string, input: { done: string; next: string; blockers?: string }): Promise<{ ok?: true; error?: string }> {
   try {

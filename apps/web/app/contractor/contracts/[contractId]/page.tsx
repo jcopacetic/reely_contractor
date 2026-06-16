@@ -9,6 +9,7 @@ import { StandupPanel, type Standup } from '@/components/standup-panel'
 import { DefinitionOfDonePanel } from '@/components/definition-of-done-panel'
 import { SprintPanel, type Sprint } from '@/components/sprint-panel'
 import { BlockerPanel, type Blocker } from '@/components/blocker-panel'
+import { ChangeRequestPanel, type ChangeRequest } from '@/components/change-request-panel'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,7 +24,7 @@ const EMPTY_TIME: TimeSummary = { entries: [], approvedSeconds: 0, pendingSecond
 
 export default async function ContractDetailPage({ params }: { params: Promise<{ contractId: string }> }) {
   const { contractId } = await params
-  const [contract, time, cycles, reviews, standups, sprints, blockers] = await Promise.all([
+  const [contract, time, cycles, reviews, standups, sprints, blockers, changeRequests] = await Promise.all([
     apiQuery<Contract | null>('contracts.get', { contractId }).catch(() => null),
     apiQuery<TimeSummary | null>('time.listTime', { contractId }).catch(() => null),
     apiQuery<Cycle[] | null>('payments.cycles', { contractId }).catch(() => null),
@@ -31,6 +32,7 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
     apiQuery<Standup[] | null>('standup.list', { contractId }).catch(() => null),
     apiQuery<Sprint[] | null>('sprint.list', { contractId }).catch(() => null),
     apiQuery<Blocker[] | null>('blocker.list', { contractId }).catch(() => null),
+    apiQuery<ChangeRequest[] | null>('changeRequest.list', { contractId }).catch(() => null),
   ])
   if (!contract) notFound()
   return (
@@ -42,6 +44,7 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
           <DefinitionOfDonePanel contractId={contract.id} role={contract.role} initial={contract.definitionOfDone} />
           <SprintPanel contractId={contract.id} rateType={contract.rateType} rateAmount={contract.rateAmount} initial={sprints ?? []} />
           <BlockerPanel contractId={contract.id} initial={blockers ?? []} />
+          <ChangeRequestPanel contractId={contract.id} initial={changeRequests ?? []} />
           <StandupPanel contractId={contract.id} role={contract.role} initial={standups ?? []} requestedAt={contract.standupRequestedAt} cadence={contract.standupCadence} />
           <TimePanel contractId={contract.id} role={contract.role} rateType={contract.rateType} rateAmount={contract.rateAmount} active={contract.status === 'active'} initial={time ?? EMPTY_TIME} />
           <BillingPanel cycles={cycles ?? []} role={contract.role} />

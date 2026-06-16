@@ -533,3 +533,15 @@ drop policy if exists bk_party on blocker
 ;
 create policy bk_party on blocker for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
 ;
+
+-- change_request: a contract's participants negotiate/read amendments; system/admin all. Backstop.
+alter table change_request enable row level security
+;
+drop policy if exists cr_admin on change_request
+;
+create policy cr_admin on change_request for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists cr_party on change_request
+;
+create policy cr_party on change_request for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
+;

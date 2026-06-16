@@ -525,6 +525,7 @@ model Contract {
   standups     Standup[]
   sprints      Sprint[]
   blockers     Blocker[]
+  changeRequests ChangeRequest[]
 
   @@index([contractorUserId])
   @@index([clientUserId])
@@ -608,6 +609,45 @@ model Blocker {
 enum BlockerStatus {
   open
   resolved
+}
+
+/// An agile change-request on a contract — a mid-flight amendment (scope / rate / timeline) that BOTH parties
+/// negotiate to agreement. Same counter-edit game as a sprint: an edit by either side resets the other's
+/// approval; both-approved → agreed. A `rate` change records the proposed new rate but does NOT touch the
+/// contract/billing until ENACTED (the deferred apply step writes `appliedAt`); scope/timeline/other are
+/// documentary once agreed. Participant-scoped.
+model ChangeRequest {
+  id                 String              @id @default(uuid()) @db.Uuid
+  contractId         String              @map("contract_id") @db.Uuid
+  contract           Contract            @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  kind               ChangeRequestKind
+  title              String
+  detail             String              @db.Text
+  proposedRateType   BudgetType?         @map("proposed_rate_type") // rate kind only
+  proposedRateAmount Decimal?            @map("proposed_rate_amount") @db.Decimal(12, 2) // rate kind only
+  status             ChangeRequestStatus @default(proposed)
+  clientApproved     Boolean             @default(false) @map("client_approved")
+  contractorApproved Boolean             @default(false) @map("contractor_approved")
+  lastEditedByRole   String              @map("last_edited_by_role") // 'client' | 'contractor'
+  appliedAt          DateTime?           @map("applied_at") // set when an agreed change is enacted (deferred)
+  createdAt          DateTime            @default(now()) @map("created_at")
+  agreedAt           DateTime?           @map("agreed_at")
+
+  @@index([contractId, createdAt])
+  @@map("change_request")
+}
+
+enum ChangeRequestKind {
+  scope
+  rate
+  timeline
+  other
+}
+
+enum ChangeRequestStatus {
+  proposed
+  agreed
+  withdrawn
 }
 
 /// A client's review of the contractor on a contract. `weekly` reviews are private until the contractor
