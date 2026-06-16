@@ -39,3 +39,20 @@ export async function list(viewerUserId: string, contractId: string): Promise<St
   })
   return rows.map((r) => ({ id: r.id, byUserId: r.byUserId, done: r.done, next: r.next, blockers: r.blockers, createdAt: r.createdAt.toISOString(), fromMe: r.byUserId === viewerUserId }))
 }
+
+// ── provider (Board, service-key; boardRef-scoped read) ──────────────────────────────────
+export type StandupProviderView = { id: string; done: string; next: string; blockers: string | null; createdAt: string }
+
+/** A Board-originated contract's stand-ups, for the Board client (read-only). Scoped: only boardRef contracts. */
+export async function providerList(contractRef: string): Promise<StandupProviderView[] | { error: string }> {
+  const c = await prisma.contract.findUnique({ where: { id: contractRef }, select: { boardRef: true } })
+  if (!c) return { error: 'not_found' }
+  if (!c.boardRef) return { error: 'forbidden' }
+  const rows = await prisma.standup.findMany({
+    where: { contractId: contractRef },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+    select: { id: true, done: true, next: true, blockers: true, createdAt: true },
+  })
+  return rows.map((r) => ({ id: r.id, done: r.done, next: r.next, blockers: r.blockers, createdAt: r.createdAt.toISOString() }))
+}
