@@ -130,3 +130,63 @@ export async function cancel(viewerUserId: string, sprintId: string): Promise<{ 
   await prisma.sprint.update({ where: { id: sprintId }, data: { status: 'cancelled' } })
   return { ok: true }
 }
+
+// ── provider (Board, service-key; acts as the CLIENT, boardRef-scoped) ───────────────────
+async function providerGate(contractRef: string): Promise<{ rateType: string; rateAmount: number } | { error: string }> {
+  const c = await prisma.contract.findUnique({ where: { id: contractRef }, select: { boardRef: true, rateType: true, rateAmount: true } })
+  if (!c) return { error: 'not_found' }
+  if (!c.boardRef) return { error: 'forbidden' }
+  return { rateType: c.rateType as string, rateAmount: Number(c.rateAmount) }
+}
+
+export async function providerList(contractRef: string): Promise<SprintView[] | { error: string }> {
+  const g = await providerGate(contractRef)
+  if ('error' in g) return g
+  const rows = await prisma.sprint.findMany({ where: { contractId: contractRef }, orderBy: { createdAt: 'desc' }, take: 100 })
+  return rows.map((r) => toView(r, 'client', g.rateType, g.rateAmount))
+}
+
+export async function providerPropose(contractRef: string, input: { items: SprintItem[]; ttdDays: number }): Promise<{ id: string } | { error: string }> {
+  const g = await providerGate(contractRef)
+  if ('error' in g) return g
+  const items = sanitizeItems(input.items)
+  if (items.length === 0) return { error: 'no_items' }
+  const s = await prisma.sprint.create({ data: { contractId: contractRef, ttdDays: ttdOf(input.ttdDays), items: items as unknown as Prisma.InputJsonValue, lastEditedByRole: 'client', ...applyApprovals('client') }, select: { id: true } })
+  await emit('sprint', 'sprint.proposed', 'system', { contractId: contractRef, sprintId: s.id }, 'client')
+  return { id: s.id }
+}
+
+export async function providerEdit(contractRef: string, sprintId: string, input: { items: SprintItem[]; ttdDays: number }): Promise<{ ok: true } | { error: string }> {
+  const g = await providerGate(contractRef)
+  if ('error' in g) return g
+  const s = await prisma.sprint.findFirst({ where: { id: sprintId, contractId: contractRef }, select: { status: true } })
+  if (!s) return { error: 'not_found' }
+  if (s.status !== 'proposed') return { error: 'not_editable' }
+  const items = sanitizeItems(input.items)
+  if (items.length === 0) return { error: 'no_items' }
+  await prisma.sprint.update({ where: { id: sprintId }, data: { items: items as unknown as Prisma.InputJsonValue, ttdDays: ttdOf(input.ttdDays), lastEditedByRole: 'client', ...applyApprovals('client') } })
+  await emit('sprint', 'sprint.edited', 'system', { sprintId }, 'client')
+  return { ok: true }
+}
+
+export async function providerApprove(contractRef: string, sprintId: string): Promise<{ ok: true; agreed: boolean } | { error: string }> {
+  const g = await providerGate(contractRef)
+  if ('error' in g) return g
+  const s = await prisma.sprint.findFirst({ where: { id: sprintId, contractId: contractRef }, select: { status: true, contractorApproved: true } })
+  if (!s) return { error: 'not_found' }
+  if (s.status !== 'proposed') return { error: 'not_proposed' }
+  const agreed = s.contractorApproved // client side approves here
+  await prisma.sprint.update({ where: { id: sprintId }, data: { clientApproved: true, ...(agreed ? { status: 'agreed', agreedAt: new Date() } : {}) } })
+  await emit('sprint', agreed ? 'sprint.agreed' : 'sprint.approved', 'system', { sprintId }, 'client')
+  return { ok: true, agreed }
+}
+
+export async function providerCancel(contractRef: string, sprintId: string): Promise<{ ok: true } | { error: string }> {
+  const g = await providerGate(contractRef)
+  if ('error' in g) return g
+  const s = await prisma.sprint.findFirst({ where: { id: sprintId, contractId: contractRef }, select: { status: true } })
+  if (!s) return { error: 'not_found' }
+  if (s.status !== 'proposed') return { error: 'not_cancellable' }
+  await prisma.sprint.update({ where: { id: sprintId }, data: { status: 'cancelled' } })
+  return { ok: true }
+}
