@@ -4,6 +4,7 @@ import { processAchievements, shareWorkActivity } from './achievements'
 import { maybeRecomputeStats } from './stats'
 import { runBillingCycle } from './payments'
 import { runNotificationDigest } from '@contractor/api/notifications-email'
+import { sendNewWeekNotices, sendChargeReminders } from '@contractor/api/payments-notices'
 import { registerSchedules } from './scheduler'
 
 const SERVICE = 'contractor-worker'
@@ -21,7 +22,13 @@ async function processJob(job: Job): Promise<void> {
       return
     case JOBS.billingCycle: {
       const r = await runBillingCycle()
-      console.log(`billing-cycle: charged ${r.charged}, swept ${r.swept}`)
+      const notices = await sendNewWeekNotices()
+      console.log(`billing-cycle: charged ${r.charged}, swept ${r.swept}; new-week notices → ${notices.contractors} contractors, ${notices.clients} clients`)
+      return
+    }
+    case JOBS.chargeReminders: {
+      const r = await sendChargeReminders()
+      console.log(`charge-reminders: ${r.reminded} client(s) reminded`)
       return
     }
     case JOBS.notifyDigest: {

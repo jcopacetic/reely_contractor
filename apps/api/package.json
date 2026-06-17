@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./router": "./src/trpc/router.ts",
     "./payments": "./src/modules/payments/store.ts",
+    "./payments-notices": "./src/modules/payments/notices.ts",
     "./notifications-email": "./src/notifications-email.ts"
   },
   "scripts": {

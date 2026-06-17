@@ -11,6 +11,7 @@ export const JOBS = {
   notifyDispatch: 'notifications.dispatch',
   notifyDigest: 'notifications.digest',
   billingCycle: 'payments.billing-cycle',
+  chargeReminders: 'payments.charge-reminders',
 } as const
 
 export type JobName = (typeof JOBS)[keyof typeof JOBS]
