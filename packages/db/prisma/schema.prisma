@@ -210,6 +210,7 @@ model ContractorProfile {
   awayUntil           DateTime? @map("away_until") // away/vacation mode end — while set + in the future the chip reads "Away until X" (public)
   ratePublic          Int?     @map("rate_public") // optional public hourly rate (USD/hr); null = "Rate on request" (public)
   location            String?  // optional public location / timezone hint, free text e.g. "Amarillo, TX (CST)" (public)
+  searchable          Boolean  @default(true) // when public, also list in the /pro sitemap + internal search; false = link-only
   onboardedAt         DateTime? @map("onboarded_at") // set when onboarding (categories + docs) completes
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
@@ -476,7 +477,8 @@ model Notification {
 /// one-click unsubscribe link (HMAC-token verified). Absent row = subscribed (the default).
 model NotificationPref {
   userId            String   @id @map("user_id")
-  emailUnsubscribed Boolean  @default(false) @map("email_unsubscribed")
+  emailUnsubscribed Boolean  @default(false) @map("email_unsubscribed") // global email kill-switch (one-click unsubscribe)
+  categoryPrefs     Json     @default("{}") @map("category_prefs") // per-category channel overrides: { <category>: { inApp?: bool, email?: bool } }; absent = on
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   @@map("notification_pref")

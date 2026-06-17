@@ -42,6 +42,8 @@ export const profileRouter = router({
     .input(z.object({ acceptingWork: z.boolean().optional(), capacityHours: z.number().int().min(0).max(168).nullish(), awayUntil: z.string().datetime().nullish() }))
     .mutation(({ ctx, input }) => profile.setAvailability(ctx.clerkUserId, input)),
   setPublic: vettedProcedure.input(z.object({ isPublic: z.boolean() })).mutation(({ ctx, input }) => profile.setPublic(ctx.clerkUserId, input.isPublic)),
+  setSearchable: vettedProcedure.input(z.object({ searchable: z.boolean() })).mutation(({ ctx, input }) => profile.setSearchable(ctx.clerkUserId, input.searchable)),
+  exportData: vettedProcedure.query(({ ctx }) => profile.exportData(ctx.clerkUserId)),
   checkSlug: vettedProcedure.input(z.object({ slug: z.string().min(1) })).query(({ ctx, input }) => profile.checkSlug(ctx.clerkUserId, input.slug)),
   acceptDoc: vettedProcedure.input(z.object({ docKey: z.string().min(1), version: z.string().optional() })).mutation(({ ctx, input }) => profile.acceptDoc(ctx.clerkUserId, input.docKey, input.version)),
   completeOnboarding: vettedProcedure.mutation(({ ctx }) => profile.completeOnboarding(ctx.clerkUserId)),

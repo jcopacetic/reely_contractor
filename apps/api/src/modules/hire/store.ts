@@ -7,7 +7,7 @@ import { prisma } from '@contractor/db'
 import { emit } from '../../events'
 import { getUserEmail } from '../../clerk'
 import { sendEmail } from '../../clients/resend'
-import { env } from '../../env'
+import { inAppEnabled } from '../notifications/store'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -48,10 +48,12 @@ export async function requestHire(slug: string, input: HireRequestInput): Promis
     select: { id: true },
   })
 
-  // In-app bell — no contractId; the feed links a 'hire' notification to the requests inbox.
-  await prisma.notification.create({
-    data: { userId: profile.clerkUserId, type: 'hire.request', payload: { ceremony: 'hire', title: `New hire request from ${v.value.fromName}` } },
-  }).catch(() => {})
+  // In-app bell — no contractId; the feed links a 'hire' notification to the requests inbox. Respects the pref.
+  if (await inAppEnabled(profile.clerkUserId, 'hire')) {
+    await prisma.notification.create({
+      data: { userId: profile.clerkUserId, type: 'hire.request', payload: { ceremony: 'hire', title: `New hire request from ${v.value.fromName}` } },
+    }).catch(() => {})
+  }
 
   // Email the contractor the lead (fire-and-forget; stubbed when RESEND_API_KEY is unset).
   const who = await getUserEmail(profile.clerkUserId)

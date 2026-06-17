@@ -80,6 +80,7 @@ export async function getOwn(clerkUserId: string) {
       awayUntil: p.awayUntil ? p.awayUntil.toISOString() : null,
       ratePublic: p.ratePublic,
       location: p.location,
+      searchable: p.searchable,
       vetted: p.identity.status === 'vetted',
     },
     requiredDocs: REQUIRED_DOCS,
@@ -182,6 +183,28 @@ export async function setAvailability(
   return { ok: true }
 }
 
+/** Visibility: link-only vs listed. When false, a public profile stays reachable by URL but drops out of the
+ *  /pro sitemap + internal search. */
+export async function setSearchable(clerkUserId: string, searchable: boolean): Promise<{ ok: true } | { error: string }> {
+  try {
+    await prisma.contractorProfile.update({ where: { clerkUserId }, data: { searchable } })
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') return { error: 'no_profile' }
+    throw e
+  }
+  return { ok: true }
+}
+
+/** A data export of everything the contractor owns here (profile + inbound leads), for the settings page. */
+export async function exportData(clerkUserId: string): Promise<Record<string, unknown>> {
+  const [profile, hireRequests, prefs] = await Promise.all([
+    prisma.contractorProfile.findUnique({ where: { clerkUserId } }),
+    prisma.hireRequest.findMany({ where: { contractorUserId: clerkUserId }, orderBy: { createdAt: 'desc' } }),
+    prisma.notificationPref.findUnique({ where: { userId: clerkUserId } }),
+  ])
+  return { exportedAt: new Date().toISOString(), profile, hireRequests, notificationPref: prefs }
+}
+
 export async function setPublic(clerkUserId: string, isPublic: boolean): Promise<{ ok: true } | { error: string }> {
   if (isPublic) {
     const p = await prisma.contractorProfile.findUnique({ where: { clerkUserId }, select: { publicSlug: true } })
@@ -234,7 +257,7 @@ export async function listCategories() {
  *  Bounded; the safe subset (no PII beyond the already-public slug + an opaque timestamp). */
 export async function listPublicSlugs(): Promise<Array<{ slug: string; updatedAt: string }>> {
   const rows = await prisma.contractorProfile.findMany({
-    where: { isPublic: true, publicSlug: { not: null } },
+    where: { isPublic: true, searchable: true, publicSlug: { not: null } },
     select: { publicSlug: true, updatedAt: true },
     orderBy: { updatedAt: 'desc' },
     take: 5000,

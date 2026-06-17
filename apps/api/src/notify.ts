@@ -7,6 +7,8 @@
  * contractor.
  */
 import { prisma } from '@contractor/db'
+import { inAppEnabled } from './modules/notifications/store'
+import { categoryForCeremony } from './modules/notifications/prefs'
 
 type Notifiable = { ceremony: string; title: string }
 
@@ -53,6 +55,8 @@ export async function notifyForEvent(type: string, actorRole: string, payload: u
   if (!c) return
   // A contractor-actor notifies the client; a client/system actor notifies the contractor.
   const recipientUserId = recipientFor(actorRole, c)
+  // Respect the recipient's per-category in-app preference (transactional categories stay on; default on).
+  if (!(await inAppEnabled(recipientUserId, categoryForCeremony(meta.ceremony)))) return
   await prisma.notification.create({
     data: {
       userId: recipientUserId,

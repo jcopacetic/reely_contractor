@@ -130,6 +130,30 @@ export async function setHireRequestStatusAction(id: string, status: 'new' | 'ha
   }
 }
 
+export async function setSearchableAction(searchable: boolean): Promise<Result> {
+  try {
+    return await apiMutate<Result>('profile.setSearchable', { searchable })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function setNotificationPrefAction(category: string, channel: 'inApp' | 'email', on: boolean): Promise<Result> {
+  try {
+    return await apiMutate<Result>('notifications.setPref', { category, channel, on })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function setEmailGlobalAction(unsubscribed: boolean): Promise<Result> {
+  try {
+    return await apiMutate<Result>('notifications.setEmail', { unsubscribed })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 export async function acceptDocAction(docKey: string): Promise<Result> {
   try {
     return await apiMutate<Result>('profile.acceptDoc', { docKey })

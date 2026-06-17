@@ -10,6 +10,7 @@ import { prisma } from '@contractor/db'
 import { env } from './env'
 import { getUserEmail } from './clerk'
 import { sendEmail } from './clients/resend'
+import { asCategoryPrefs, channelEnabled, categoryForCeremony } from './modules/notifications/prefs'
 
 const SECRET = env.NOTIFICATIONS_UNSUB_SECRET ?? env.CLERK_SECRET_KEY ?? 'reely-notify-dev'
 const MAX_NOTIFICATIONS = 2000
@@ -80,13 +81,18 @@ export async function runNotificationDigest(): Promise<{ recipients: number; ema
   const now = new Date()
   for (const [userId, items] of byUser) {
     try {
-      const pref = await prisma.notificationPref.findUnique({ where: { userId }, select: { emailUnsubscribed: true } })
+      const pref = await prisma.notificationPref.findUnique({ where: { userId }, select: { emailUnsubscribed: true, categoryPrefs: true } })
       if (!pref?.emailUnsubscribed) {
-        const who = await getUserEmail(userId)
-        if (who) {
-          const mail = buildDigest(who.firstName, userId, items)
-          const r = await sendEmail({ to: who.email, subject: mail.subject, html: mail.html, text: mail.text })
-          if (r.ok && !r.stubbed) emails++
+        // Per-category email mute: drop items whose category has email off (in-app still delivered them).
+        const prefs = asCategoryPrefs(pref?.categoryPrefs)
+        const emailItems = items.filter((i) => channelEnabled(prefs, categoryForCeremony(str(i.payload, 'ceremony') ?? ''), 'email'))
+        if (emailItems.length > 0) {
+          const who = await getUserEmail(userId)
+          if (who) {
+            const mail = buildDigest(who.firstName, userId, emailItems)
+            const r = await sendEmail({ to: who.email, subject: mail.subject, html: mail.html, text: mail.text })
+            if (r.ok && !r.stubbed) emails++
+          }
         }
       }
     } catch (e) {

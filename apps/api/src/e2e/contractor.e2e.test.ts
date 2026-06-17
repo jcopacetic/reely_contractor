@@ -163,6 +163,47 @@ describe('hire requests (the public hire box)', () => {
   })
 })
 
+describe('settings — notification prefs + visibility', () => {
+  it('a category channel pref persists and reads back', async () => {
+    expect(await call(ctx(CAROL, 'contractor')).notifications.setPref({ category: 'work', channel: 'email', on: false })).toEqual({ ok: true })
+    const prefs = await call(ctx(CAROL, 'contractor')).notifications.prefs()
+    expect(prefs.categories.work?.email).toBe(false)
+  })
+
+  it('muting hire in-app suppresses the bell row, but the lead still lands in the inbox', async () => {
+    // CAROL goes public so she's contactable, then mutes the hire bell.
+    await prisma.contractorProfile.update({ where: { clerkUserId: CAROL }, data: { isPublic: true, publicSlug: `${RUN}-carol` } })
+    await call(ctx(CAROL, 'contractor')).notifications.setPref({ category: 'hire', channel: 'inApp', on: false })
+    const before = (await call(ctx(CAROL, 'contractor')).notifications.list()).items.filter((n) => n.ceremony === 'hire').length
+
+    const r = await call(ctx(undefined, 'applicant', false)).hire.request({ slug: `${RUN}-carol`, fromName: 'Quiet Lead', fromEmail: 'quiet@acme.test', message: 'hello' })
+    expect(r).toEqual({ ok: true })
+
+    const after = (await call(ctx(CAROL, 'contractor')).notifications.list()).items.filter((n) => n.ceremony === 'hire').length
+    expect(after).toBe(before) // no bell row
+    const leads = await call(ctx(CAROL, 'contractor')).hire.list()
+    expect(leads.some((l) => l.fromEmail === 'quiet@acme.test')).toBe(true) // but the lead is captured
+  })
+
+  it('a non-searchable public profile drops out of the sitemap but stays reachable by link', async () => {
+    await call(ctx(ALICE, 'contractor')).profile.setSearchable({ searchable: false })
+    const hidden = await call(ctx(undefined, 'applicant', false)).profile.publicSitemap()
+    expect(hidden.some((s) => s.slug === `${RUN}-alice`)).toBe(false)
+    // still reachable directly
+    expect(await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })).toBeTruthy()
+
+    await call(ctx(ALICE, 'contractor')).profile.setSearchable({ searchable: true })
+    const listed = await call(ctx(undefined, 'applicant', false)).profile.publicSitemap()
+    expect(listed.some((s) => s.slug === `${RUN}-alice`)).toBe(true)
+  })
+
+  it('exportData returns the contractor’s own profile + leads', async () => {
+    const data = await call(ctx(ALICE, 'contractor')).profile.exportData() as { profile: { clerkUserId: string } | null; hireRequests: unknown[] }
+    expect(data.profile?.clerkUserId).toBe(ALICE)
+    expect(Array.isArray(data.hireRequests)).toBe(true)
+  })
+})
+
 describe('profile blocks (landing-page builder)', () => {
   it('synthesizes a links block from legacy flat links when no blocks exist', async () => {
     await prisma.contractorProfile.update({ where: { clerkUserId: ALICE }, data: { links: [{ label: 'Portfolio', url: 'https://alice.dev' }], blocks: [] } })

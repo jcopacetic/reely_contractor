@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { UserButton } from '@clerk/nextjs'
-import { Rss, UserCircle, MessagesSquare, Briefcase, Gavel, FileText, Banknote, Inbox, PenSquare, type LucideIcon } from 'lucide-react'
+import { Rss, UserCircle, MessagesSquare, Briefcase, Gavel, FileText, Banknote, Inbox, Settings, PenSquare, type LucideIcon } from 'lucide-react'
 import { NotificationBell } from '@/components/notification-bell'
 
 const hasClerk = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
@@ -18,6 +18,7 @@ const NAV: NavItem[] = [
   { key: 'payouts', href: '/contractor/payouts', label: 'Payouts', Icon: Banknote, match: (p) => p.startsWith('/contractor/payouts') },
   { key: 'messages', href: '/contractor/dms', label: 'Messages', Icon: MessagesSquare, match: (p) => p.startsWith('/contractor/dms') },
   { key: 'profile', href: '/contractor/profile', label: 'Profile', Icon: UserCircle, match: (p) => p.startsWith('/contractor/profile') || p.startsWith('/contractor/u/') },
+  { key: 'settings', href: '/contractor/settings', label: 'Settings', Icon: Settings, match: (p) => p.startsWith('/contractor/settings') },
 ]
 
 // PRE-app flows (apply / status / onboarding) render bare — no club chrome.
@@ -79,7 +80,7 @@ export default function ContractorLayout({ children }: { children: React.ReactNo
           <Brand />
           {hasClerk && <UserButton afterSignOutUrl="/contractor/status" />}
         </div>
-        <nav className="flex justify-center gap-1 px-2 py-1.5">{NAV.map(tabLink)}<NotificationBell variant="tab" /></nav>
+        <nav className="flex justify-start gap-1 overflow-x-auto px-2 py-1.5 sm:justify-center">{NAV.map(tabLink)}<NotificationBell variant="tab" /></nav>
       </header>
 
       <div className="mx-auto flex w-full max-w-6xl">
