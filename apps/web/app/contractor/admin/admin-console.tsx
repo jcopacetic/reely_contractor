@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Loader2, Check, X, ShieldCheck, UserPlus, Ban, RotateCcw, ExternalLink, Inbox, PlayCircle } from 'lucide-react'
+import { Loader2, Check, X, ShieldCheck, UserPlus, Ban, RotateCcw, ExternalLink, Inbox, PlayCircle, CreditCard } from 'lucide-react'
 import {
   approveApplicantAction,
   rejectApplicantAction,
   suspendContractorAction,
   reinstateContractorAction,
+  suspendClientAction,
+  reinstateClientAction,
   createInviteAction,
   runBillingCycleAction,
 } from './actions'
@@ -21,6 +23,24 @@ type Applicant = {
   name: string | null
   email: string | null
 }
+type ClientStanding = { clientUserId: string; status: string; reason: string | null; activeContracts: number; suspendedAt: string | null; name: string | null; email: string | null }
+
+const CONTRACTOR_REASONS = [
+  { v: 'conduct', l: 'Conduct concern' },
+  { v: 'quality', l: 'Quality concern' },
+  { v: 'inactivity', l: 'Inactivity' },
+  { v: 'terms_violation', l: 'Terms violation' },
+  { v: 'request', l: 'By request' },
+  { v: 'other', l: 'Other' },
+]
+const CLIENT_REASONS = [
+  { v: 'payment_declined', l: 'Payment declined' },
+  { v: 'non_payment', l: 'Non-payment' },
+  { v: 'abuse', l: 'Abuse concern' },
+  { v: 'terms_violation', l: 'Terms violation' },
+  { v: 'request', l: 'By request' },
+  { v: 'other', l: 'Other' },
+]
 
 function fmtDate(iso: string): string {
   try {
@@ -30,7 +50,7 @@ function fmtDate(iso: string): string {
   }
 }
 
-export function AdminConsole({ applicants }: { applicants: Applicant[] }) {
+export function AdminConsole({ applicants, clients }: { applicants: Applicant[]; clients: ClientStanding[] }) {
   const [rows, setRows] = useState(applicants)
 
   return (
@@ -63,9 +83,69 @@ export function AdminConsole({ applicants }: { applicants: Applicant[] }) {
         )}
       </section>
 
+      <ClientStandings clients={clients} />
       <ManageContractor />
       <OpsPanel />
     </main>
+  )
+}
+
+function ClientStandings({ clients }: { clients: ClientStanding[] }) {
+  return (
+    <section className="mt-8 rounded-xl border border-border bg-card p-5">
+      <h2 className="mb-1 flex items-center gap-2 font-display text-lg font-semibold"><CreditCard className="size-4 text-muted-foreground" /> Client billing standing</h2>
+      <p className="mb-3 text-sm text-muted-foreground">Shut a client&apos;s contracting on or off. Suspending stops their contractors&apos; timers, holds their contracts, and emails both sides. A declined weekly charge does this automatically.</p>
+      {clients.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No clients with contracts yet.</p>
+      ) : (
+        <ul className="space-y-2">
+          {clients.map((c) => <ClientRow key={c.clientUserId} c={c} />)}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function ClientRow({ c }: { c: ClientStanding }) {
+  const [reason, setReason] = useState(CLIENT_REASONS[0]!.v)
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [pending, start] = useTransition()
+  const suspended = c.status === 'suspended'
+
+  function act(kind: 'suspend' | 'reinstate') {
+    setMsg(null)
+    start(async () => {
+      const r = kind === 'suspend' ? await suspendClientAction(c.clientUserId, reason) : await reinstateClientAction(c.clientUserId)
+      if ('error' in r && r.error) setMsg({ kind: 'err', text: r.error })
+      else setMsg({ kind: 'ok', text: kind === 'suspend' ? 'Client suspended.' : 'Client reinstated.' })
+    })
+  }
+
+  return (
+    <li className="rounded-lg border border-border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            {c.name ?? c.email ?? <span className="font-mono text-xs text-muted-foreground">{c.clientUserId}</span>}
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${suspended ? 'bg-destructive/15 text-destructive' : 'bg-emerald-500/15 text-emerald-700'}`}>{suspended ? 'Suspended' : 'Active'}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">{c.email && c.name ? `${c.email} · ` : ''}{c.activeContracts} active contract{c.activeContracts === 1 ? '' : 's'}{suspended && c.reason ? ` · ${c.reason}` : ''}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {suspended ? (
+            <button type="button" onClick={() => act('reinstate')} disabled={pending} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium hover:bg-muted disabled:opacity-60"><RotateCcw className="size-4" /> Reinstate</button>
+          ) : (
+            <>
+              <select value={reason} onChange={(e) => setReason(e.target.value)} className="h-9 rounded-md border border-border bg-background px-2 text-sm">
+                {CLIENT_REASONS.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
+              </select>
+              <button type="button" onClick={() => act('suspend')} disabled={pending} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-destructive/40 px-3 text-sm font-medium text-destructive hover:bg-destructive/5 disabled:opacity-60">{pending ? <Loader2 className="size-4 animate-spin" /> : <Ban className="size-4" />} Suspend</button>
+            </>
+          )}
+        </div>
+      </div>
+      {msg && <p className={`mt-2 text-sm ${msg.kind === 'ok' ? 'text-emerald-700' : 'text-destructive'}`}>{msg.text}</p>}
+    </li>
   )
 }
 
@@ -212,6 +292,7 @@ function OpsPanel() {
 
 function ManageContractor() {
   const [userId, setUserId] = useState('')
+  const [reason, setReason] = useState(CONTRACTOR_REASONS[0]!.v)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [pending, start] = useTransition()
 
@@ -220,9 +301,9 @@ function ManageContractor() {
     const id = userId.trim()
     if (!id) return
     start(async () => {
-      const r = kind === 'suspend' ? await suspendContractorAction(id) : await reinstateContractorAction(id)
+      const r = kind === 'suspend' ? await suspendContractorAction(id, reason) : await reinstateContractorAction(id)
       if ('error' in r && r.error) setMsg({ kind: 'err', text: r.error })
-      else setMsg({ kind: 'ok', text: kind === 'suspend' ? 'Contractor suspended.' : 'Contractor reinstated.' })
+      else setMsg({ kind: 'ok', text: kind === 'suspend' ? 'Contractor disabled (timers stopped, their clients alerted).' : 'Contractor reinstated.' })
     })
   }
 
@@ -231,7 +312,7 @@ function ManageContractor() {
       <h2 className="mb-1 flex items-center gap-2 font-display text-lg font-semibold">
         <Ban className="size-4 text-muted-foreground" /> Manage a contractor
       </h2>
-      <p className="mb-3 text-sm text-muted-foreground">Suspend or reinstate an existing contractor by their Clerk user id.</p>
+      <p className="mb-3 text-sm text-muted-foreground">Disable or reinstate a contractor by their Clerk user id. Disabling stops their timers, alerts the clients on their active contracts, and emails them.</p>
       <div className="flex flex-wrap gap-2">
         <input
           value={userId}
@@ -239,13 +320,16 @@ function ManageContractor() {
           placeholder="user_xxx (Clerk user id)"
           className="h-10 min-w-0 flex-1 rounded-md border border-border bg-background px-3 font-mono text-sm outline-none focus:border-primary"
         />
+        <select value={reason} onChange={(e) => setReason(e.target.value)} className="h-10 rounded-md border border-border bg-background px-2 text-sm">
+          {CONTRACTOR_REASONS.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
+        </select>
         <button
           type="button"
           onClick={() => act('suspend')}
           disabled={pending || !userId.trim()}
           className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-destructive/40 px-3.5 text-sm font-medium text-destructive hover:bg-destructive/5 disabled:opacity-60"
         >
-          <Ban className="size-4" /> Suspend
+          <Ban className="size-4" /> Disable
         </button>
         <button
           type="button"

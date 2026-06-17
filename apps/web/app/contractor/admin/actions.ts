@@ -39,14 +39,24 @@ export async function rejectApplicantAction(userId: string): Promise<Result> {
   return adminMutate('identity.reject', { userId })
 }
 
-/** Suspend a vetted contractor (revokes club access). */
-export async function suspendContractorAction(userId: string): Promise<Result> {
-  return adminMutate('identity.suspend', { userId })
+/** Disable a vetted contractor (governance kill-switch — reason + cascade: stop timers, alert their clients). */
+export async function suspendContractorAction(userId: string, reason: string, note?: string): Promise<Result> {
+  return adminMutate('governance.suspendContractor', { contractorUserId: userId, reason, ...(note ? { note } : {}) })
 }
 
-/** Reinstate a suspended contractor back to vetted. */
+/** Reinstate a disabled contractor (notifies them + their clients it's back on). */
 export async function reinstateContractorAction(userId: string): Promise<Result> {
-  return adminMutate('identity.reinstate', { userId })
+  return adminMutate('governance.reinstateContractor', { contractorUserId: userId })
+}
+
+/** Suspend a client's contracting (kill-switch — reason + cascade: stop timers, disable contracts, notify both sides). */
+export async function suspendClientAction(clientUserId: string, reason: string, note?: string): Promise<Result> {
+  return adminMutate('governance.suspendClient', { clientUserId, reason, ...(note ? { note } : {}) })
+}
+
+/** Restore a suspended client's contracting. */
+export async function reinstateClientAction(clientUserId: string): Promise<Result> {
+  return adminMutate('governance.reinstateClient', { clientUserId })
 }
 
 /** Fire the weekly billing tick on demand (testing + ops). Enqueues the same job the Sunday cron runs. */

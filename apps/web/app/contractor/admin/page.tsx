@@ -9,20 +9,34 @@ export const dynamic = 'force-dynamic'
 
 type QueueRow = { id: string; clerkUserId: string; source: string; status: string; videoLink: string | null; createdAt: string }
 export type Applicant = QueueRow & { name: string | null; email: string | null }
+type StandingRow = { clientUserId: string; status: string; reason: string | null; activeContracts: number; suspendedAt: string | null }
+export type ClientStanding = StandingRow & { name: string | null; email: string | null }
 
 export default async function ContractorAdminPage() {
   const { userId, sessionClaims } = await auth()
   const role = (sessionClaims?.metadata as { role?: string } | undefined)?.role
   if (!userId || role !== 'admin') notFound() // defense in depth; middleware already gates the route
 
-  let queue: QueueRow[] = []
-  try {
-    queue = (await apiQuery<QueueRow[]>('identity.vettingQueue')) ?? []
-  } catch {
-    queue = []
-  }
+  const [queue, standings] = await Promise.all([
+    apiQuery<QueueRow[]>('identity.vettingQueue').catch(() => [] as QueueRow[]),
+    apiQuery<StandingRow[]>('governance.clientStandings').catch(() => [] as StandingRow[]),
+  ])
 
-  return <AdminConsole applicants={await enrich(queue)} />
+  return <AdminConsole applicants={await enrich(queue ?? [])} clients={await enrichClients(standings ?? [])} />
+}
+
+/** Resolve client ids → names/emails so the owner has the contact info (per the kill-switch requirement). */
+async function enrichClients(rows: StandingRow[]): Promise<ClientStanding[]> {
+  const map = new Map<string, { name: string | null; email: string | null }>()
+  if (rows.length > 0) {
+    try {
+      const cc = await clerkClient()
+      const ids = [...new Set(rows.map((r) => r.clientUserId))]
+      const list = await cc.users.getUserList({ userId: ids, limit: ids.length })
+      for (const u of list.data) map.set(u.id, { name: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username || null, email: u.primaryEmailAddress?.emailAddress ?? u.emailAddresses[0]?.emailAddress ?? null })
+    } catch { /* Clerk unset/unreachable — ids only */ }
+  }
+  return rows.map((r) => ({ ...r, name: map.get(r.clientUserId)?.name ?? null, email: map.get(r.clientUserId)?.email ?? null }))
 }
 
 /** Best-effort identity resolution — one batched Clerk lookup so the admin sees names/emails, not raw ids.
