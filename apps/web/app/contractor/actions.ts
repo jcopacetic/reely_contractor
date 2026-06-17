@@ -425,6 +425,32 @@ export async function withdrawChangeRequestAction(changeRequestId: string): Prom
   }
 }
 
+// ── Notifications (in-app bell) ──────────────────────────────────────────────────────────
+export async function notificationsUnreadAction(): Promise<number> {
+  try {
+    const r = await apiQuery<{ unread?: number }>('notifications.unreadCount', {})
+    return r?.unread ?? 0
+  } catch {
+    return 0
+  }
+}
+export async function markNotificationReadAction(id: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    await apiMutate('notifications.markRead', { id })
+    return { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function markAllNotificationsReadAction(): Promise<{ ok?: true; error?: string }> {
+  try {
+    await apiMutate('notifications.markAllRead', {})
+    return { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 // ── Charter (agile ceremony — kickoff alignment + close-out) ─────────────────────────────
 type CharterDoc = { goals?: string | null; workingAgreement?: string | null; successCriteria?: string | null }
 export async function saveCharterAction(contractId: string, doc: CharterDoc): Promise<{ ok?: true; error?: string }> {

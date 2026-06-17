@@ -131,7 +131,7 @@ export async function approve(viewerUserId: string, sprintId: string): Promise<{
   const contractorApproved = p.role === 'contractor' ? true : s.contractorApproved
   const agreed = clientApproved && contractorApproved
   await prisma.sprint.update({ where: { id: sprintId }, data: { clientApproved, contractorApproved, ...(agreed ? { status: 'agreed', agreedAt: new Date() } : {}) } })
-  await emit('sprint', agreed ? 'sprint.agreed' : 'sprint.approved', viewerUserId, { sprintId }, p.role)
+  await emit('sprint', agreed ? 'sprint.agreed' : 'sprint.approved', viewerUserId, { sprintId, contractId: s.contractId }, p.role)
   return { ok: true, agreed }
 }
 
@@ -163,7 +163,7 @@ export async function submit(viewerUserId: string, sprintId: string, note: strin
     where: { id: sprintId },
     data: { status: 'review', submittedAt: now, reviewDueAt: new Date(now.getTime() + REVIEW_WINDOW_DAYS * 86_400_000), submissionNote: String(note ?? '').trim().slice(0, 4000) || null, changeRequestNote: null },
   })
-  await emit('sprint', 'sprint.submitted', viewerUserId, { sprintId }, p.role)
+  await emit('sprint', 'sprint.submitted', viewerUserId, { sprintId, contractId: s.contractId }, p.role)
   return { ok: true }
 }
 
@@ -176,7 +176,7 @@ export async function accept(viewerUserId: string, sprintId: string): Promise<{ 
   if ('error' in p) return p
   if (p.role !== 'client') return { error: 'forbidden' }
   await prisma.sprint.update({ where: { id: sprintId }, data: { status: 'completed', acceptedAt: new Date() } })
-  await emit('sprint', 'sprint.accepted', viewerUserId, { sprintId }, p.role)
+  await emit('sprint', 'sprint.accepted', viewerUserId, { sprintId, contractId: s.contractId }, p.role)
   return { ok: true }
 }
 
@@ -189,7 +189,7 @@ export async function requestChanges(viewerUserId: string, sprintId: string, not
   if ('error' in p) return p
   if (p.role !== 'client') return { error: 'forbidden' }
   await prisma.sprint.update({ where: { id: sprintId }, data: { status: 'agreed', submittedAt: null, reviewDueAt: null, changeRequestNote: String(note ?? '').trim().slice(0, 4000) || null } })
-  await emit('sprint', 'sprint.changes_requested', viewerUserId, { sprintId }, p.role)
+  await emit('sprint', 'sprint.changes_requested', viewerUserId, { sprintId, contractId: s.contractId }, p.role)
   return { ok: true }
 }
 
@@ -239,7 +239,7 @@ export async function providerApprove(contractRef: string, sprintId: string): Pr
   if (s.status !== 'proposed') return { error: 'not_proposed' }
   const agreed = s.contractorApproved // client side approves here
   await prisma.sprint.update({ where: { id: sprintId }, data: { clientApproved: true, ...(agreed ? { status: 'agreed', agreedAt: new Date() } : {}) } })
-  await emit('sprint', agreed ? 'sprint.agreed' : 'sprint.approved', 'system', { sprintId }, 'client')
+  await emit('sprint', agreed ? 'sprint.agreed' : 'sprint.approved', 'system', { sprintId, contractId: contractRef }, 'client')
   return { ok: true, agreed }
 }
 
@@ -260,7 +260,7 @@ export async function providerAccept(contractRef: string, sprintId: string): Pro
   if (!s) return { error: 'not_found' }
   if (s.status !== 'review') return { error: 'not_in_review' }
   await prisma.sprint.update({ where: { id: sprintId }, data: { status: 'completed', acceptedAt: new Date() } })
-  await emit('sprint', 'sprint.accepted', 'system', { sprintId }, 'client')
+  await emit('sprint', 'sprint.accepted', 'system', { sprintId, contractId: contractRef }, 'client')
   return { ok: true }
 }
 
@@ -271,6 +271,6 @@ export async function providerRequestChanges(contractRef: string, sprintId: stri
   if (!s) return { error: 'not_found' }
   if (s.status !== 'review') return { error: 'not_in_review' }
   await prisma.sprint.update({ where: { id: sprintId }, data: { status: 'agreed', submittedAt: null, reviewDueAt: null, changeRequestNote: String(note ?? '').trim().slice(0, 4000) || null } })
-  await emit('sprint', 'sprint.changes_requested', 'system', { sprintId }, 'client')
+  await emit('sprint', 'sprint.changes_requested', 'system', { sprintId, contractId: contractRef }, 'client')
   return { ok: true }
 }

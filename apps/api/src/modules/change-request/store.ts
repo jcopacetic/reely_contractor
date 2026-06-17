@@ -120,7 +120,7 @@ export async function approve(viewerUserId: string, crId: string): Promise<{ ok:
   const contractorApproved = p.role === 'contractor' ? true : cr.contractorApproved
   const agreed = clientApproved && contractorApproved
   await prisma.changeRequest.update({ where: { id: crId }, data: { clientApproved, contractorApproved, ...(agreed ? { status: 'agreed', agreedAt: new Date() } : {}) } })
-  await emit('change-request', agreed ? 'change_request.agreed' : 'change_request.approved', viewerUserId, { changeRequestId: crId }, p.role)
+  await emit('change-request', agreed ? 'change_request.agreed' : 'change_request.approved', viewerUserId, { changeRequestId: crId, contractId: cr.contractId }, p.role)
   return { ok: true, agreed }
 }
 
@@ -181,7 +181,7 @@ export async function providerApprove(contractRef: string, crId: string): Promis
   if (cr.status !== 'proposed') return { error: 'not_proposed' }
   const agreed = cr.contractorApproved
   await prisma.changeRequest.update({ where: { id: crId }, data: { clientApproved: true, ...(agreed ? { status: 'agreed', agreedAt: new Date() } : {}) } })
-  await emit('change-request', agreed ? 'change_request.agreed' : 'change_request.approved', 'system', { changeRequestId: crId }, 'client')
+  await emit('change-request', agreed ? 'change_request.agreed' : 'change_request.approved', 'system', { changeRequestId: crId, contractId: contractRef }, 'client')
   return { ok: true, agreed }
 }
 

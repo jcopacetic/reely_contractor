@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { UserButton } from '@clerk/nextjs'
 import { Rss, UserCircle, MessagesSquare, Briefcase, Gavel, FileText, Banknote, PenSquare, type LucideIcon } from 'lucide-react'
+import { NotificationBell } from '@/components/notification-bell'
 
 const hasClerk = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
 
@@ -77,7 +78,7 @@ export default function ContractorLayout({ children }: { children: React.ReactNo
           <Brand />
           {hasClerk && <UserButton afterSignOutUrl="/contractor/status" />}
         </div>
-        <nav className="flex justify-center gap-1 px-2 py-1.5">{NAV.map(tabLink)}</nav>
+        <nav className="flex justify-center gap-1 px-2 py-1.5">{NAV.map(tabLink)}<NotificationBell variant="tab" /></nav>
       </header>
 
       <div className="mx-auto flex w-full max-w-6xl">
@@ -87,7 +88,7 @@ export default function ContractorLayout({ children }: { children: React.ReactNo
             <div className="mb-4 px-3">
               <Brand />
             </div>
-            <nav className="flex flex-col gap-1">{NAV.map(railLink)}</nav>
+            <nav className="flex flex-col gap-1">{NAV.map(railLink)}<NotificationBell variant="rail" /></nav>
             <Link href="/contractor" className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-full bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90">
               <PenSquare className="size-4" /> Post
             </Link>

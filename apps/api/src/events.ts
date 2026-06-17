@@ -6,6 +6,7 @@
  */
 import { prisma, type ActorType, Prisma } from '@contractor/db'
 import { enqueue } from './queue'
+import { isNotifiable, notifyForEvent } from './notify'
 
 export async function emit(
   source: string,
@@ -17,4 +18,6 @@ export async function emit(
   await prisma.appEvent.create({ data: { source, type, actorId, actorType, payload } })
   // Fire-and-forget: the achievements fan-out must never block the request path (the event is durable).
   void enqueue('achievements.process', { userId: actorId, type, actorType, payload }).catch(() => {})
+  // Fire-and-forget: notify the counterparty on curated ceremony events (never blocks / fails the action).
+  if (isNotifiable(type)) void notifyForEvent(type, actorType, payload).catch(() => {})
 }
