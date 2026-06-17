@@ -24,7 +24,7 @@ const submitBidInput = z.object({
  */
 const providerRouter = router({
   createListing: serviceProcedure
-    .input(createListingInput.extend({ ownerUserId: z.string().min(1), boardPartRef: z.string().min(1) }))
+    .input(createListingInput.extend({ ownerUserId: z.string().min(1), boardPartRef: z.string().min(1), invitedUserIds: z.array(z.string().min(1)).max(3).optional() }))
     .mutation(({ input }) => mp.providerCreateListing(input)),
   listBids: serviceProcedure.input(z.object({ listingRef: z.string().uuid() })).query(({ input }) => mp.providerListBids(input.listingRef)),
   counterBid: serviceProcedure.input(z.object({ bidRef: z.string().uuid() })).mutation(({ input }) => mp.counterBid(null, input.bidRef)),

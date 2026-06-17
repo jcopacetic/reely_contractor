@@ -223,6 +223,7 @@ describe('toView — malformed / missing payload as a whole', () => {
         'contractTitle',
         'createdAt',
         'id',
+        'listingId',
         'read',
         'title',
         'type',

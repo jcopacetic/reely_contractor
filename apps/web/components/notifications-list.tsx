@@ -13,6 +13,7 @@ export type Notification = {
   title: string
   contractId: string | null
   contractTitle: string | null
+  listingId: string | null
   actorRole: string | null
   read: boolean
   createdAt: string
@@ -25,6 +26,7 @@ const ICON: Record<string, LucideIcon> = {
   change_request: GitPullRequestArrow,
   charter: Compass,
   hire: Inbox,
+  invite: Inbox,
 }
 
 function ago(s: string): string {
@@ -83,7 +85,7 @@ export function NotificationsList({ initial }: { initial: Notification[] }) {
                 </div>
               </div>
             )
-            const href = n.contractId ? `/contractor/contracts/${n.contractId}` : n.ceremony === 'hire' ? '/contractor/requests' : null
+            const href = n.contractId ? `/contractor/contracts/${n.contractId}` : n.ceremony === 'invite' && n.listingId ? `/contractor/work/${n.listingId}` : n.ceremony === 'hire' ? '/contractor/requests' : null
             return (
               <li key={n.id}>
                 {href ? (

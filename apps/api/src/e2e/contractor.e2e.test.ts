@@ -58,6 +58,7 @@ afterAll(async () => {
   await prisma.contract.deleteMany({ where: { OR: [{ clientUserId: { in: users } }, { contractorUserId: { in: users } }] } }) // cascades time_entry → time_activity
   await prisma.post.deleteMany({ where: { authorUserId: { in: users } } })
   await prisma.appEvent.deleteMany({ where: { actorId: { in: users } } })
+  await prisma.listing.deleteMany({ where: { boardPartRef: { contains: RUN } } })
   await prisma.hireRequest.deleteMany({ where: { contractorUserId: { in: users } } })
   await prisma.skillCategory.deleteMany({ where: { OR: [{ requestedBy: { in: users } }, { name: { contains: RUN } }] } })
   await prisma.notification.deleteMany({ where: { userId: { in: users } } })
@@ -260,6 +261,25 @@ describe('provider — contractor discovery (the Board hire/invite seam)', () =>
 
   it('the provider seam requires the service key (no anonymous discovery)', async () => {
     await expect(call(ctx(undefined, 'applicant', false)).profile.provider.searchContractors({ q: 'Anderson' })).rejects.toThrow()
+  })
+})
+
+describe('targeted invites (provider createListing records + notifies up to 3)', () => {
+  it('a Board-posted job with invitedUserIds records them on the listing + notifies each', async () => {
+    const r = await call(SVC).marketplace.provider.createListing({
+      ownerUserId: uid('hiring-client'),
+      boardPartRef: `part-${RUN}`,
+      title: 'Build the checkout',
+      description: 'Card entry + validation + confirmation.',
+      categoryIds: [],
+      budgetType: 'fixed',
+      invitedUserIds: [ALICE],
+    })
+    expect(r.listingRef).toBeTruthy()
+    const listing = await prisma.listing.findUnique({ where: { id: r.listingRef }, select: { invitedUserIds: true } })
+    expect(listing?.invitedUserIds).toContain(ALICE)
+    const notes = await call(ctx(ALICE, 'contractor')).notifications.list()
+    expect(notes.items.some((n) => n.ceremony === 'invite' && n.listingId === r.listingRef)).toBe(true)
   })
 })
 

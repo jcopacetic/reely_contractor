@@ -501,6 +501,7 @@ model Listing {
   title        String
   description  String        @db.Text // the brief
   categoryIds  String[]      @map("category_ids") // skill_category ids; text[] + GIN; the job↔contractor match key
+  invitedUserIds String[]    @default([]) @map("invited_user_ids") // contractors directly invited to this job (≤3); notified + can bid
   budgetType   BudgetType    @map("budget_type")
   budgetAmount Decimal?      @map("budget_amount") @db.Decimal(12, 2)
   status       ListingStatus @default(open)
@@ -515,6 +516,7 @@ model Listing {
   @@index([boardPartRef])
   @@index([status])
   @@index([categoryIds], type: Gin)
+  @@index([invitedUserIds], type: Gin)
   @@map("listing")
 }
 

@@ -18,7 +18,7 @@ export type CategoryKey = (typeof NOTIFY_CATEGORIES)[number]['key']
 
 const CEREMONY_TO_CATEGORY: Record<string, CategoryKey> = {
   standup: 'work', sprint: 'work', blocker: 'work', change_request: 'work', charter: 'work',
-  hire: 'hire',
+  hire: 'hire', invite: 'hire',
   account: 'billing', billing: 'billing',
 }
 

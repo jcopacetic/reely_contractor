@@ -8,6 +8,7 @@
  */
 import { prisma } from '@contractor/db'
 import { emit } from '../../events'
+import { inAppEnabled } from '../notifications/store'
 
 export const MAX_BIDS_PER_LISTING = 100
 
@@ -68,23 +69,34 @@ export function toListingView(l: { id: string; ownerUserId: string; boardPartRef
 }
 
 // ── Listings ──────────────────────────────────────────────────────────────────────
-export type CreateListingInput = { title: string; description: string; categoryIds: string[]; budgetType: BudgetType; budgetAmount?: number | null; boardPartRef?: string | null }
+export type CreateListingInput = { title: string; description: string; categoryIds: string[]; budgetType: BudgetType; budgetAmount?: number | null; boardPartRef?: string | null; invitedUserIds?: string[] }
 
-/** Create a listing owned by `ownerUserId`. actorType 'client' for Board-provider posts, 'contractor' for native. */
+/** Create a listing owned by `ownerUserId`. actorType 'client' for Board-provider posts, 'contractor' for native.
+ *  `invitedUserIds` (≤3) directly invites contractors — they're recorded on the listing + notified, and can bid. */
 export async function createListing(ownerUserId: string, input: CreateListingInput, actorType: 'contractor' | 'client' = 'contractor'): Promise<{ listingId: string }> {
+  const invited = [...new Set((input.invitedUserIds ?? []).filter(Boolean))].slice(0, 3)
   const listing = await prisma.listing.create({
     data: {
       ownerUserId,
       title: input.title.trim(),
       description: input.description.trim(),
       categoryIds: [...new Set(input.categoryIds)],
+      invitedUserIds: invited,
       budgetType: input.budgetType as never,
       budgetAmount: input.budgetAmount ?? null,
       boardPartRef: input.boardPartRef ?? null,
     },
-    select: { id: true, boardPartRef: true },
+    select: { id: true, boardPartRef: true, title: true },
   })
   await emit('marketplace', 'listing.posted', ownerUserId, { listingId: listing.id, boardPartRef: listing.boardPartRef }, actorType)
+  // Notify each directly-invited contractor (in-app; respects their hire-category pref). Fire-and-forget.
+  for (const uid of invited) {
+    if (await inAppEnabled(uid, 'hire')) {
+      await prisma.notification.create({
+        data: { userId: uid, type: 'listing.invited', payload: { ceremony: 'invite', title: `You've been invited to bid: ${listing.title}`, listingId: listing.id } },
+      }).catch(() => {})
+    }
+  }
   return { listingId: listing.id }
 }
 

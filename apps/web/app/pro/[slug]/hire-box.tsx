@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { DollarSign, MapPin, Loader2, Check, Send } from 'lucide-react'
+import { DollarSign, MapPin, Loader2, Check, Send, Briefcase } from 'lucide-react'
 import { requestHireAction } from './actions'
 
 const inputCls = 'w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary'
@@ -42,9 +42,14 @@ export function HireBox({ slug, displayName, ratePublic, location, accepting }: 
           {location && <p className="flex items-center gap-1.5 text-muted-foreground"><MapPin className="size-3.5" /> {location}</p>}
         </div>
         {!open && !done && (
-          <button type="button" onClick={() => setOpen(true)} className="inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90">
-            <Send className="size-4" /> {accepting ? 'Request to hire' : 'Get in touch'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <a href={`/projects?invite=${encodeURIComponent(slug)}`} className="inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90">
+              <Briefcase className="size-4" /> Hire on Board
+            </a>
+            <button type="button" onClick={() => setOpen(true)} className="inline-flex h-10 items-center gap-1.5 rounded-md border border-border px-4 text-sm font-medium hover:bg-muted">
+              <Send className="size-4" /> {accepting ? 'Request to hire' : 'Get in touch'}
+            </button>
+          </div>
         )}
       </div>
 

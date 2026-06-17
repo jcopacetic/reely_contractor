@@ -14,6 +14,7 @@ export type NotificationView = {
   title: string
   contractId: string | null
   contractTitle: string | null
+  listingId: string | null
   actorRole: string | null
   read: boolean
   createdAt: string
@@ -28,6 +29,7 @@ export function toView(n: { id: string; type: string; payload: unknown; readAt: 
     title: typeof p.title === 'string' ? p.title : n.type,
     contractId: typeof p.contractId === 'string' ? p.contractId : null,
     contractTitle: typeof p.contractTitle === 'string' ? p.contractTitle : null,
+    listingId: typeof p.listingId === 'string' ? p.listingId : null,
     actorRole: typeof p.actorRole === 'string' ? p.actorRole : null,
     read: n.readAt != null,
     createdAt: n.createdAt.toISOString(),
