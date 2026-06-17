@@ -139,11 +139,13 @@ enum TimeSource {
 // ── Foundation ─────────────────────────────────────────────────────────────────
 /// The principal — a verified layer on the base Clerk User. The vetting gate.
 model ContractorIdentity {
-  id           String           @id @default(uuid()) @db.Uuid
-  clerkUserId  String           @unique @map("clerk_user_id")
-  status       ContractorStatus @default(applicant)
-  vettedAt     DateTime?        @map("vetted_at")
-  createdAt    DateTime         @default(now()) @map("created_at")
+  id            String           @id @default(uuid()) @db.Uuid
+  clerkUserId   String           @unique @map("clerk_user_id")
+  status        ContractorStatus @default(applicant)
+  vettedAt      DateTime?        @map("vetted_at")
+  suspendReason String?          @map("suspend_reason") // why the admin disabled them (governance kill-switch)
+  suspendedAt   DateTime?        @map("suspended_at")
+  createdAt     DateTime         @default(now()) @map("created_at")
 
   profile ContractorProfile?
 
@@ -918,6 +920,36 @@ model ClientBilling {
 enum ClientBillingStatus {
   pending
   ready
+}
+
+/// A client's (Board member's) GOVERNANCE standing — the kill-switch the owner (or an auto charge-decline) flips.
+/// Clients have no contractor_identity, so this is their gate. `suspended` = the client's contracting is shut off:
+/// their contractors can't clock time on the client's contracts (enforced at the timer write), running timers are
+/// stopped, and both sides are notified. Absent row = active (the default). Standing is the source of truth — we
+/// do NOT mutate each contract's status, so reinstating cleanly restores everything.
+model ClientStanding {
+  clientUserId      String              @id @map("client_user_id")
+  status            ClientStandingStatus @default(active)
+  reason            String?             // reason code (payment_declined / non_payment / abuse / request / other)
+  note              String?             @db.Text
+  source            StandingSource?     // how it was suspended
+  suspendedByUserId String?             @map("suspended_by_user_id") // the admin, or null for auto
+  suspendedAt       DateTime?           @map("suspended_at")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("client_standing")
+}
+
+enum ClientStandingStatus {
+  active
+  suspended
+}
+
+enum StandingSource {
+  manual
+  auto_decline
 }
 
 /// The IMMUTABLE, append-only financial ledger — one row per money event (a cycle charge, a failed charge, a

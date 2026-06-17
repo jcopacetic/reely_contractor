@@ -10,6 +10,7 @@ import { emit } from '../../events'
 import { env } from '../../env'
 import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured, createCustomer, createSetupIntent, createSetupCheckout, attachDefaultPaymentMethod } from '../../clients/stripe'
 import { recordLedger } from './ledger'
+import { autoSuspendClientOnDecline } from '../governance/store'
 
 export const DISPUTE_WINDOW_DAYS = 7
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -259,8 +260,9 @@ export async function reconcileStripeEvent(event: Stripe.Event): Promise<void> {
       await prisma.charge.update({ where: { id: charge.id }, data: { status: 'failed' } })
       const reason = pi.last_payment_error?.decline_code ?? pi.last_payment_error?.code ?? pi.last_payment_error?.message ?? 'declined'
       await recordLedger({ kind: 'charge_failed', cycleId: charge.billingCycleId, clientUserId: charge.clientUserId, contractorUserId: charge.contractorUserId, gross: Number(charge.grossAmount), fee: Number(charge.takeRateAmount), net: Number(charge.netAmount), chargeId: charge.id, stripePaymentIntentId: pi.id, succeeded: false, failureReason: String(reason).slice(0, 200), description: `Charge declined — cycle ${charge.billingCycleId}`, idempotencyKey: `ledger:fail:${charge.id}` })
-      // Decline → the client-standing kill-switch (auto-suspend + cascade) hooks in here as a later fenced task.
+      // Decline → instant kill-switch: suspend the client (stops timers, disables contracting, notifies both sides).
       await emit('payments', 'charge.failed', charge.clientUserId, { cycleId: charge.billingCycleId, chargeId: charge.id }, 'system')
+      await autoSuspendClientOnDecline(charge.clientUserId)
       return
     }
     case 'charge.dispute.created': {

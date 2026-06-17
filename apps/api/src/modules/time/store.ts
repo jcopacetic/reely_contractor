@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { prisma } from '@contractor/db'
 import { emit } from '../../events'
 import { presignPut, presignGet } from '../../clients/r2'
+import { disabledReasonFor } from '../governance/store'
 
 /** Auto-stop guard: a running timer can't bill more than this (a forgotten timer is clamped on stop/read). */
 export const MAX_RUNNING_HOURS = 12
@@ -80,6 +81,8 @@ export async function start(contractorUserId: string, contractId: string, input?
   if (!c) return { error: 'contract_not_found' }
   if (c.contractorUserId !== contractorUserId) return { error: 'forbidden' }
   if (c.status !== 'active') return { error: 'contract_not_active' }
+  const blocked = await disabledReasonFor(c)
+  if (blocked) return { error: blocked } // client suspended / contractor suspended / contract paused — no clocking
   const running = await prisma.timeEntry.findFirst({ where: { contractorUserId, endedAt: null }, select: { id: true } })
   if (running) return { error: 'timer_already_running' }
   const e = await prisma.timeEntry.create({
@@ -123,6 +126,8 @@ export async function manualEntry(
   if (!c) return { error: 'contract_not_found' }
   if (c.contractorUserId !== contractorUserId) return { error: 'forbidden' }
   if (c.status !== 'active') return { error: 'contract_not_active' }
+  const blocked = await disabledReasonFor(c)
+  if (blocked) return { error: blocked }
   const startedAt = new Date(input.startedAt)
   const endedAt = new Date(input.endedAt)
   if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())) return { error: 'bad_dates' }
