@@ -86,9 +86,9 @@ export type LedgerView = {
   occurredAt: string
 }
 
-type Row = { id: string; kind: string; contractId: string | null; boardRef: string | null; grossAmount: unknown; feeAmount: unknown; netAmount: unknown; currency: string; description: string; periodStart: Date | null; periodEnd: Date | null; taskCount: number; totalSeconds: number; succeeded: boolean; failureReason: string | null; occurredAt: Date }
+export type Row = { id: string; kind: string; contractId: string | null; boardRef: string | null; grossAmount: unknown; feeAmount: unknown; netAmount: unknown; currency: string; description: string; periodStart: Date | null; periodEnd: Date | null; taskCount: number; totalSeconds: number; succeeded: boolean; failureReason: string | null; occurredAt: Date }
 
-function toView(r: Row): LedgerView {
+export function toView(r: Row): LedgerView {
   return {
     id: r.id,
     kind: r.kind as Kind,

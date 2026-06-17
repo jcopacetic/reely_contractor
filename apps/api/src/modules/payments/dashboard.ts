@@ -26,10 +26,11 @@ export type BillingWeek = { periodStart: string; periodEnd: string; label: strin
 export type DashContract = { id: string; title: string; rateType: string; rateAmount: number }
 
 const WEEK_MS = 7 * 86_400_000
-const round2 = (n: number) => Math.round(n * 100) / 100
+// Exported for unit tests only (pure helpers); behavior is unchanged.
+export const round2 = (n: number) => Math.round(n * 100) / 100
 
 /** The Sunday-18:00 boundary at or before `now` — the start of the current (in-progress) week. */
-function currentWeekStart(now: Date): Date {
+export function currentWeekStart(now: Date): Date {
   const d = new Date(now.getTime())
   d.setUTCHours(18, 0, 0, 0)
   const dow = d.getUTCDay() // 0 = Sun
@@ -38,8 +39,8 @@ function currentWeekStart(now: Date): Date {
   return d
 }
 
-const amountFor = (c: DashContract, seconds: number) => round2(c.rateType === 'hourly' ? (seconds / 3600) * c.rateAmount : c.rateAmount)
-const taskOf = (e: { description: string | null; durationSeconds: number; approved: boolean }): BillingTask => ({ title: e.description?.trim() || 'Tracked work', seconds: e.durationSeconds, approved: e.approved })
+export const amountFor = (c: DashContract, seconds: number) => round2(c.rateType === 'hourly' ? (seconds / 3600) * c.rateAmount : c.rateAmount)
+export const taskOf = (e: { description: string | null; durationSeconds: number; approved: boolean }): BillingTask => ({ title: e.description?.trim() || 'Tracked work', seconds: e.durationSeconds, approved: e.approved })
 
 export async function buildBillingWeeks(contracts: DashContract[], role: Role, now = new Date()): Promise<BillingWeek[]> {
   if (contracts.length === 0) return []

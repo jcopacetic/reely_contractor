@@ -35,7 +35,7 @@ export type ContractView = {
   items: ContractItemView[]
 }
 
-const toItem = (i: { id: string; kind: string; title: string; description: string | null; amount: unknown; status: string; order: number; createdAt: Date }): ContractItemView => ({
+export const toItem = (i: { id: string; kind: string; title: string; description: string | null; amount: unknown; status: string; order: number; createdAt: Date }): ContractItemView => ({
   id: i.id, kind: i.kind as ItemKind, title: i.title, description: i.description, amount: i.amount == null ? null : Number(i.amount), status: i.status as ItemStatus, order: i.order, createdAt: i.createdAt.toISOString(),
 })
 
@@ -83,7 +83,7 @@ export async function createFromBid(bidId: string, boardRef?: string | null, req
 }
 
 // ── reads (participant-scoped) ────────────────────────────────────────────────────
-function toView(c: { id: string; listingId: string | null; clientUserId: string; contractorUserId: string; boardRef: string | null; title: string; rateType: string; rateAmount: unknown; status: string; definitionOfDone: string | null; standupRequestedAt: Date | null; standupCadence: string | null; startedAt: Date; endedAt: Date | null; listing: { title: string } | null; items?: Parameters<typeof toItem>[0][] }, viewerUserId: string): ContractView {
+export function toView(c: { id: string; listingId: string | null; clientUserId: string; contractorUserId: string; boardRef: string | null; title: string; rateType: string; rateAmount: unknown; status: string; definitionOfDone: string | null; standupRequestedAt: Date | null; standupCadence: string | null; startedAt: Date; endedAt: Date | null; listing: { title: string } | null; items?: Parameters<typeof toItem>[0][] }, viewerUserId: string): ContractView {
   return {
     id: c.id,
     listingId: c.listingId,

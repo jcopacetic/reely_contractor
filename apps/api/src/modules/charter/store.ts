@@ -32,14 +32,14 @@ async function participant(contractId: string, userId: string): Promise<{ role: 
   return { role: c.contractorUserId === userId ? 'contractor' : 'client' }
 }
 
-const clip = (s: unknown) => {
+export const clip = (s: unknown) => {
   const t = String(s ?? '').trim().slice(0, 4000)
   return t || null
 }
 
 type CharterRow = { goals: string | null; workingAgreement: string | null; successCriteria: string | null; clientAcknowledged: boolean; contractorAcknowledged: boolean; lastEditedByRole: string | null; kickedOffAt: Date | null; closeOutNote: string | null; closedAt: Date | null } | null
 
-function toView(c: CharterRow, myRole: Role): CharterView {
+export function toView(c: CharterRow, myRole: Role): CharterView {
   const status: Status = c?.closedAt ? 'closed' : c?.kickedOffAt ? 'active' : 'draft'
   return {
     goals: c?.goals ?? null,

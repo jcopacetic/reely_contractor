@@ -77,6 +77,9 @@ function toView(c: { id: string; kind: string; title: string; detail: string; pr
   }
 }
 
+/** Test-only: expose the pure (DB-free) internal helpers for unit tests. Behavior unchanged. */
+export const __test__ = { clean, applyApprovals, toView }
+
 export async function list(viewerUserId: string, contractId: string): Promise<ChangeRequestView[] | { error: string }> {
   const p = await participant(contractId, viewerUserId)
   if ('error' in p) return p

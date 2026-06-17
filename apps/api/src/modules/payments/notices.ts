@@ -23,17 +23,22 @@ async function pushEmail(userId: string, subject: string, lines: string[]): Prom
   await sendEmail({ to: who.email, subject, html, text })
 }
 
+/**
+ * Pure: collapse a list of contracts to the FIRST contract id seen per distinct key (e.g. one nudge per user,
+ * not one per contract). Preserves first-occurrence order; later contracts for the same key are ignored.
+ */
+export function firstContractFor<C extends { id: string }>(contracts: readonly C[], pick: (c: C) => string): Map<string, string> {
+  const m = new Map<string, string>()
+  for (const c of contracts) if (!m.has(pick(c))) m.set(pick(c), c.id)
+  return m
+}
+
 /** Weekly: a "new work week has started" ping to both parties of every active contract (client also emailed). */
 export async function sendNewWeekNotices(): Promise<{ contractors: number; clients: number }> {
   const contracts = await prisma.contract.findMany({ where: { status: 'active' }, select: { id: true, clientUserId: true, contractorUserId: true } })
   if (contracts.length === 0) return { contractors: 0, clients: 0 }
-  const firstContractFor = (pick: (c: (typeof contracts)[number]) => string) => {
-    const m = new Map<string, string>()
-    for (const c of contracts) if (!m.has(pick(c))) m.set(pick(c), c.id)
-    return m
-  }
-  const contractorContracts = firstContractFor((c) => c.contractorUserId)
-  const clientContracts = firstContractFor((c) => c.clientUserId)
+  const contractorContracts = firstContractFor(contracts, (c) => c.contractorUserId)
+  const clientContracts = firstContractFor(contracts, (c) => c.clientUserId)
   for (const [uid, cid] of contractorContracts) {
     await pushInApp(uid, 'A new work week has started — log and submit your time', cid)
   }
@@ -44,11 +49,25 @@ export async function sendNewWeekNotices(): Promise<{ contractors: number; clien
   return { contractors: contractorContracts.size, clients: clientContracts.size }
 }
 
-const REMIND_AHEAD_MS = 30 * 3_600_000 // ~24h, with slack for the daily run
+export const REMIND_AHEAD_MS = 30 * 3_600_000 // ~24h, with slack for the daily run
+
+/** Pure: the upper bound of the reminder window — cycles closing on/before this (and after `now`) are "imminent". */
+export function remindWindowEnd(now: Date): Date {
+  return new Date(now.getTime() + REMIND_AHEAD_MS)
+}
+
+/**
+ * Pure: does a cycle's dispute-window close fall inside the reminder window `(now, now+REMIND_AHEAD_MS]`?
+ * Mirrors the `disputeWindowEndsAt: { gt: now, lte: soon }` predicate: strictly after now, at-or-before the bound.
+ */
+export function isWithinReminderWindow(disputeWindowEndsAt: Date, now: Date): boolean {
+  const t = disputeWindowEndsAt.getTime()
+  return t > now.getTime() && t <= remindWindowEnd(now).getTime()
+}
 
 /** Daily: remind the client ~24h before a cycle's dispute window closes (the charge is imminent). Once per cycle. */
 export async function sendChargeReminders(now = new Date()): Promise<{ reminded: number }> {
-  const soon = new Date(now.getTime() + REMIND_AHEAD_MS)
+  const soon = remindWindowEnd(now)
   const due = await prisma.billingCycle.findMany({
     where: { status: 'dispute_window', disputeWindowEndsAt: { gt: now, lte: soon }, chargeReminderSentAt: null, totalAmount: { gt: 0 }, disputes: { none: { status: 'open' } } },
     select: { id: true, contractId: true, totalAmount: true, contract: { select: { clientUserId: true } } },

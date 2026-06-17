@@ -41,7 +41,8 @@ export type BidView = {
   createdAt: string
 }
 
-const num = (d: { toString(): string } | null): number | null => (d == null ? null : Number(d))
+/** Nullable decimal/scalar → number (null passes through). Exported for unit tests. */
+export const num = (d: { toString(): string } | null): number | null => (d == null ? null : Number(d))
 
 export async function bidCounts(listingIds: string[]): Promise<Map<string, number>> {
   if (!listingIds.length) return new Map()

@@ -9,7 +9,7 @@ import { getUserEmail } from '../../clerk'
 import { sendEmail } from '../../clients/resend'
 import { env } from '../../env'
 
-const usd = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+export const usd = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 async function pushInApp(userId: string, title: string, contractId?: string | null): Promise<void> {
   await prisma.notification.create({ data: { userId, type: 'billing.dispute', payload: { ceremony: 'account', title, ...(contractId ? { contractId } : {}) }, emailedAt: new Date() } }).catch(() => {})

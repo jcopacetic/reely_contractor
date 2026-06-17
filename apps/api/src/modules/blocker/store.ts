@@ -28,7 +28,7 @@ async function participantRole(contractId: string, userId: string): Promise<{ ro
   return { role: c.contractorUserId === userId ? 'contractor' : 'client' }
 }
 
-function toView(b: { id: string; status: string; reason: string; raisedByRole: string; raisedByUserId: string; resolutionNote: string | null; resolvedByRole: string | null; createdAt: Date; resolvedAt: Date | null }, viewerUserId: string): BlockerView {
+export function toView(b: { id: string; status: string; reason: string; raisedByRole: string; raisedByUserId: string; resolutionNote: string | null; resolvedByRole: string | null; createdAt: Date; resolvedAt: Date | null }, viewerUserId: string): BlockerView {
   return {
     id: b.id,
     status: b.status as 'open' | 'resolved',

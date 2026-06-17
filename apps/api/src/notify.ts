@@ -31,6 +31,18 @@ export function isNotifiable(type: string): boolean {
   return type in NOTIFY
 }
 
+/**
+ * PURE recipient-derivation: a contractor-actor notifies the client; any other actor
+ * (client / system / unknown) notifies the contractor. Extracted so the two-party routing
+ * can be unit-tested without the DB. `notifyForEvent` is the sole caller.
+ */
+export function recipientFor(
+  actorRole: string,
+  parties: { clientUserId: string; contractorUserId: string },
+): string {
+  return actorRole === 'contractor' ? parties.clientUserId : parties.contractorUserId
+}
+
 /** Write a notification for the counterparty of `actorRole` on the contract carried in the event payload. */
 export async function notifyForEvent(type: string, actorRole: string, payload: unknown): Promise<void> {
   const meta = NOTIFY[type]
@@ -40,7 +52,7 @@ export async function notifyForEvent(type: string, actorRole: string, payload: u
   const c = await prisma.contract.findUnique({ where: { id: contractId }, select: { clientUserId: true, contractorUserId: true, title: true } })
   if (!c) return
   // A contractor-actor notifies the client; a client/system actor notifies the contractor.
-  const recipientUserId = actorRole === 'contractor' ? c.clientUserId : c.contractorUserId
+  const recipientUserId = recipientFor(actorRole, c)
   await prisma.notification.create({
     data: {
       userId: recipientUserId,

@@ -19,7 +19,7 @@ const REASON_LABEL: Record<string, string> = {
   payment_declined: 'a declined payment', non_payment: 'non-payment', abuse: 'a terms/abuse concern', terms_violation: 'a terms violation',
   conduct: 'a conduct concern', quality: 'a quality concern', inactivity: 'inactivity', request: 'a request', other: 'an account review',
 }
-const labelFor = (r?: string | null) => (r ? REASON_LABEL[r] ?? 'an account review' : 'an account review')
+export const labelFor = (r?: string | null) => (r ? REASON_LABEL[r] ?? 'an account review' : 'an account review')
 
 // ── notification + transactional email (governance is immediate, not digested) ────────────
 async function pushInApp(userId: string, title: string, contractId?: string | null): Promise<void> {

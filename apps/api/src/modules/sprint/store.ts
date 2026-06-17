@@ -36,7 +36,7 @@ const REVIEW_WINDOW_DAYS = 5
 
 const MAX_ITEMS = 50
 
-function sanitizeItems(raw: unknown): SprintItem[] {
+export function sanitizeItems(raw: unknown): SprintItem[] {
   if (!Array.isArray(raw)) return []
   return raw
     .map((x) => {
@@ -57,11 +57,11 @@ async function participant(contractId: string, userId: string): Promise<{ role: 
 }
 
 /** The acting role approves their version; the other side un-approves (a change requires re-approval). */
-function applyApprovals(role: Role): { clientApproved: boolean; contractorApproved: boolean } {
+export function applyApprovals(role: Role): { clientApproved: boolean; contractorApproved: boolean } {
   return role === 'contractor' ? { contractorApproved: true, clientApproved: false } : { clientApproved: true, contractorApproved: false }
 }
 
-function toView(s: { id: string; status: string; ttdDays: number; items: unknown; clientApproved: boolean; contractorApproved: boolean; lastEditedByRole: string; submittedAt: Date | null; reviewDueAt: Date | null; acceptedAt: Date | null; autoAccepted: boolean; submissionNote: string | null; changeRequestNote: string | null; createdAt: Date; agreedAt: Date | null }, myRole: Role, rateType: string, rateAmount: number): SprintView {
+export function toView(s: { id: string; status: string; ttdDays: number; items: unknown; clientApproved: boolean; contractorApproved: boolean; lastEditedByRole: string; submittedAt: Date | null; reviewDueAt: Date | null; acceptedAt: Date | null; autoAccepted: boolean; submissionNote: string | null; changeRequestNote: string | null; createdAt: Date; agreedAt: Date | null }, myRole: Role, rateType: string, rateAmount: number): SprintView {
   const items = sanitizeItems(s.items)
   const expectedHours = items.reduce((n, i) => n + i.effortPoints, 0)
   return {
@@ -93,7 +93,7 @@ export async function list(viewerUserId: string, contractId: string): Promise<Sp
   return rows.map((r) => toView(r, p.role, p.rateType, p.rateAmount))
 }
 
-const ttdOf = (n: number) => Math.max(1, Math.min(365, Math.round(n)))
+export const ttdOf = (n: number) => Math.max(1, Math.min(365, Math.round(n)))
 
 export async function propose(viewerUserId: string, contractId: string, input: { items: SprintItem[]; ttdDays: number }): Promise<{ id: string } | { error: string }> {
   const p = await participant(contractId, viewerUserId)

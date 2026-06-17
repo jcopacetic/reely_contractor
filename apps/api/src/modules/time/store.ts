@@ -48,7 +48,7 @@ export type TimeSummary = {
 }
 
 type Row = { id: string; contractId: string; contractorUserId: string; startedAt: Date; endedAt: Date | null; durationSeconds: number; description: string | null; source: string; approved: boolean; approvedAt: Date | null; disputed: boolean; disputeReason: string | null; disputedAt: Date | null }
-const toView = (e: Row): TimeEntryView => ({
+export const toView = (e: Row): TimeEntryView => ({
   id: e.id,
   contractId: e.contractId,
   contractorUserId: e.contractorUserId,
@@ -158,6 +158,15 @@ async function summarize(rows: Row[]): Promise<TimeSummary> {
       }
     }
   }
+  return bucketSummary(entries)
+}
+
+/**
+ * Pure aggregation: fold the (already view-mapped) entries into the billing buckets + running id. Running
+ * entries are excluded from every total; otherwise the approved→disputed→pending precedence is exclusive.
+ * Extracted from `summarize` so the bucketing logic is unit-testable without the DB enrichment groupBy.
+ */
+export function bucketSummary(entries: TimeEntryView[]): TimeSummary {
   let approvedSeconds = 0
   let pendingSeconds = 0
   let disputedSeconds = 0

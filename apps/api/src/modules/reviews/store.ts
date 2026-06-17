@@ -35,13 +35,13 @@ export type PublicReviews = {
   items: PublicItem[]
 }
 
-const trimBody = (s: unknown, max = 2000): string | null => {
+export const trimBody = (s: unknown, max = 2000): string | null => {
   const t = typeof s === 'string' ? s.trim() : ''
   return t ? t.slice(0, max) : null
 }
 
 /** Monday 00:00 UTC of the current ISO week — a stable per-week key for weekly reviews. */
-function weekStart(now = new Date()): Date {
+export function weekStart(now = new Date()): Date {
   const x = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
   const dow = (x.getUTCDay() + 6) % 7 // Mon=0 … Sun=6
   x.setUTCDate(x.getUTCDate() - dow)
@@ -53,12 +53,12 @@ async function contractFor(contractId: string) {
 }
 
 const reviewSelect = { id: true, kind: true, rating: true, pulse: true, dimensions: true, kudos: true, body: true, authorLabel: true, weekOf: true, approvedForDisplay: true, createdAt: true } as const
-type ReviewRow = {
+export type ReviewRow = {
   id: string; kind: 'weekly' | 'final'; rating: number | null; pulse: Pulse | null; dimensions: Prisma.JsonValue
   kudos: string[]; body: string | null; authorLabel: string | null; weekOf: Date | null; approvedForDisplay: boolean; createdAt: Date
 }
-const asDimensions = (v: Prisma.JsonValue): Dimensions | null => parseDimensions(v)
-const toView = (r: ReviewRow): ReviewView => ({
+export const asDimensions = (v: Prisma.JsonValue): Dimensions | null => parseDimensions(v)
+export const toView = (r: ReviewRow): ReviewView => ({
   id: r.id, kind: r.kind, rating: r.rating, pulse: r.pulse, dimensions: asDimensions(r.dimensions), kudos: r.kudos ?? [],
   body: r.body, authorLabel: r.authorLabel, weekOf: r.weekOf ? r.weekOf.toISOString() : null, approvedForDisplay: r.approvedForDisplay, createdAt: r.createdAt.toISOString(),
 })

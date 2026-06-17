@@ -30,7 +30,7 @@ export async function setUnsubscribed(userId: string): Promise<void> {
 type Row = { id: string; userId: string; payload: unknown; createdAt: Date }
 const str = (p: unknown, k: string): string | null => { const v = (p as Record<string, unknown>)?.[k]; return typeof v === 'string' ? v : null }
 
-function buildDigest(firstName: string | null, userId: string, items: Row[]): { subject: string; html: string; text: string } {
+export function buildDigest(firstName: string | null, userId: string, items: Row[]): { subject: string; html: string; text: string } {
   const n = items.length
   const subject = n === 1 ? `1 update on your Reely contract` : `${n} updates on your Reely contracts`
   const hi = firstName ? `Hi ${firstName},` : 'Hi,'
@@ -55,7 +55,7 @@ function buildDigest(firstName: string | null, userId: string, items: Row[]): { 
   return { subject, html, text }
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 }
 
