@@ -19,6 +19,16 @@ const uid = (s: string) => `${RUN}:${s}`
 const ctx = (clerkUserId: string | undefined, role: ActorRole, serviceCaller = true): ApiContext => ({ clerkUserId, role, serviceCaller })
 const call = (c: ApiContext) => appRouter.createCaller(c)
 
+// Participant procedures return `View | { error }`; the happy-path tests assert success — narrow it.
+function rows<T>(r: T[] | { error: string }): T[] {
+  if (!Array.isArray(r)) throw new Error((r as { error: string }).error)
+  return r
+}
+function val<T>(r: T | { error: string }): T {
+  if (r && typeof r === 'object' && 'error' in r) throw new Error((r as { error: string }).error)
+  return r as T
+}
+
 const CLIENT = uid('client') // vetted; plays the CLIENT on the contracts
 const WORKER = uid('worker') // vetted; plays the CONTRACTOR
 const THIRD = uid('third') // vetted; a non-participant
@@ -52,8 +62,8 @@ describe('sprint — two-party negotiation → review → accept', () => {
   it('the contractor proposes; their side approves, the client has not', async () => {
     const r = (await call(ctx(WORKER, 'contractor')).sprint.propose({ contractId, items, ttdDays: 7 })) as { id: string }
     expect(r.id).toBeTruthy()
-    const list = await call(ctx(WORKER, 'contractor')).sprint.list({ contractId })
-    const s = list![0]!
+    const list = rows(await call(ctx(WORKER, 'contractor')).sprint.list({ contractId }))
+    const s = list[0]!
     expect(s.status).toBe('proposed')
     expect(s.contractorApproved).toBe(true)
     expect(s.clientApproved).toBe(false)
@@ -66,17 +76,17 @@ describe('sprint — two-party negotiation → review → accept', () => {
   })
 
   it('the client approves → agreed; the contractor submits → review; the client accepts → completed', async () => {
-    const id = (await call(ctx(WORKER, 'contractor')).sprint.list({ contractId }))![0]!.id
+    const id = rows(await call(ctx(WORKER, 'contractor')).sprint.list({ contractId }))[0]!.id
     expect(await call(ctx(CLIENT, 'contractor')).sprint.approve({ sprintId: id })).toMatchObject({ ok: true, agreed: true })
-    expect((await call(ctx(WORKER, 'contractor')).sprint.list({ contractId }))![0]!.status).toBe('agreed')
+    expect(rows(await call(ctx(WORKER, 'contractor')).sprint.list({ contractId }))[0]!.status).toBe('agreed')
 
     expect(await call(ctx(WORKER, 'contractor')).sprint.submit({ sprintId: id, note: 'done — see staging' })).toEqual({ ok: true })
-    expect((await call(ctx(CLIENT, 'contractor')).sprint.list({ contractId }))![0]!.status).toBe('review')
+    expect(rows(await call(ctx(CLIENT, 'contractor')).sprint.list({ contractId }))[0]!.status).toBe('review')
 
     // only the contractor submits; the client accepts
     expect(await call(ctx(WORKER, 'contractor')).sprint.accept({ sprintId: id })).toEqual({ error: 'forbidden' })
     expect(await call(ctx(CLIENT, 'contractor')).sprint.accept({ sprintId: id })).toEqual({ ok: true })
-    expect((await call(ctx(WORKER, 'contractor')).sprint.list({ contractId }))![0]!.status).toBe('completed')
+    expect(rows(await call(ctx(WORKER, 'contractor')).sprint.list({ contractId }))[0]!.status).toBe('completed')
   })
 
   it('request-changes sends a submitted sprint back to agreed', async () => {
@@ -84,7 +94,7 @@ describe('sprint — two-party negotiation → review → accept', () => {
     await call(ctx(CLIENT, 'contractor')).sprint.approve({ sprintId: id })
     await call(ctx(WORKER, 'contractor')).sprint.submit({ sprintId: id, note: 'v1' })
     expect(await call(ctx(CLIENT, 'contractor')).sprint.requestChanges({ sprintId: id, note: 'tighten the copy' })).toEqual({ ok: true })
-    const s = (await call(ctx(WORKER, 'contractor')).sprint.list({ contractId }))!.find((x) => x.id === id)!
+    const s = rows(await call(ctx(WORKER, 'contractor')).sprint.list({ contractId })).find((x) => x.id === id)!
     expect(s.status).toBe('agreed')
     expect(s.changeRequestNote).toBe('tighten the copy')
   })
@@ -96,20 +106,20 @@ describe('blockers + change-requests + charter', () => {
 
   it('a blocker is raised and resolved by either party', async () => {
     const { id } = (await call(ctx(WORKER, 'contractor')).blocker.raise({ contractId, reason: 'waiting on design' })) as { id: string }
-    expect((await call(ctx(CLIENT, 'contractor')).blocker.list({ contractId }))!.find((b) => b.id === id)!.status).toBe('open')
+    expect(rows(await call(ctx(CLIENT, 'contractor')).blocker.list({ contractId })).find((b) => b.id === id)!.status).toBe('open')
     expect(await call(ctx(CLIENT, 'contractor')).blocker.resolve({ blockerId: id, note: 'design sent' })).toEqual({ ok: true })
-    expect((await call(ctx(WORKER, 'contractor')).blocker.list({ contractId }))!.find((b) => b.id === id)!.status).toBe('resolved')
+    expect(rows(await call(ctx(WORKER, 'contractor')).blocker.list({ contractId })).find((b) => b.id === id)!.status).toBe('resolved')
   })
 
   it('a change-request is two-party agreed', async () => {
     const { id } = (await call(ctx(WORKER, 'contractor')).changeRequest.propose({ contractId, kind: 'scope', title: 'Add a report', detail: 'Weekly PDF' })) as { id: string }
     expect(await call(ctx(CLIENT, 'contractor')).changeRequest.approve({ changeRequestId: id })).toMatchObject({ ok: true, agreed: true })
-    expect((await call(ctx(WORKER, 'contractor')).changeRequest.list({ contractId }))!.find((c) => c.id === id)!.status).toBe('agreed')
+    expect(rows(await call(ctx(WORKER, 'contractor')).changeRequest.list({ contractId })).find((c) => c.id === id)!.status).toBe('agreed')
   })
 
   it('a rate change-request keeps the proposed rate; non-rate kinds drop it', async () => {
     const { id } = (await call(ctx(CLIENT, 'contractor')).changeRequest.propose({ contractId, kind: 'rate', title: 'Bump rate', detail: 'scope grew', proposedRateType: 'hourly', proposedRateAmount: 125 })) as { id: string }
-    const cr = (await call(ctx(WORKER, 'contractor')).changeRequest.list({ contractId }))!.find((c) => c.id === id)!
+    const cr = rows(await call(ctx(WORKER, 'contractor')).changeRequest.list({ contractId })).find((c) => c.id === id)!
     expect(cr.proposedRateAmount).toBe(125)
     expect(cr.appliedAt).toBeNull() // recorded, not enacted
   })
@@ -118,10 +128,10 @@ describe('blockers + change-requests + charter', () => {
     expect(await call(ctx(WORKER, 'contractor')).charter.save({ contractId, goals: 'Ship v1', workingAgreement: 'Async', successCriteria: 'Launched' })).toEqual({ ok: true })
     // the saver (contractor) is acknowledged; one side is not enough
     expect(await call(ctx(WORKER, 'contractor')).charter.acknowledge({ contractId })).toMatchObject({ kickedOff: false })
-    expect((await call(ctx(CLIENT, 'contractor')).charter.get({ contractId }))!.status).toBe('draft')
+    expect(val(await call(ctx(CLIENT, 'contractor')).charter.get({ contractId })).status).toBe('draft')
     // the client acknowledges → kicked off
     expect(await call(ctx(CLIENT, 'contractor')).charter.acknowledge({ contractId })).toMatchObject({ ok: true, kickedOff: true })
-    expect((await call(ctx(WORKER, 'contractor')).charter.get({ contractId }))!.status).toBe('active')
+    expect(val(await call(ctx(WORKER, 'contractor')).charter.get({ contractId })).status).toBe('active')
   })
 })
 
