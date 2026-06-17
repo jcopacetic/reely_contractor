@@ -9,6 +9,7 @@
  */
 import { prisma } from '@contractor/db'
 import { sweepCycle, chargeDueCycles } from '@contractor/api/payments'
+import { cutRunningTimersAtBoundary } from '@contractor/api/time'
 
 const WEEK_MS = 7 * 86_400_000
 
@@ -25,9 +26,12 @@ export function lastCompletedWeek(now: Date): { periodStart: Date; periodEnd: Da
 }
 
 /** Run one billing tick. Returns counts for the worker log. */
-export async function runBillingCycle(now = new Date()): Promise<{ charged: number; swept: number }> {
+export async function runBillingCycle(now = new Date()): Promise<{ charged: number; swept: number; timersCut: number }> {
   const { charged } = await chargeDueCycles(now)
   const { periodStart, periodEnd } = lastCompletedWeek(now)
+  // Auto-cut running timers at the week boundary so pre-boundary time lands in the just-ended week + the timer
+  // continues into the new week.
+  const { cut: timersCut } = await cutRunningTimersAtBoundary(periodEnd)
   // Only contracts that actually have un-billed, approved, ended time — no empty cycles.
   const pending = await prisma.timeEntry.findMany({
     where: { approved: true, disputed: false, billingCycleId: null, endedAt: { not: null } },
@@ -39,5 +43,5 @@ export async function runBillingCycle(now = new Date()): Promise<{ charged: numb
     const r = await sweepCycle(contractId, periodStart, periodEnd)
     if (r) swept++
   }
-  return { charged, swept }
+  return { charged, swept, timersCut }
 }

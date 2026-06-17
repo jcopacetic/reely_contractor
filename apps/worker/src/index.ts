@@ -23,7 +23,7 @@ async function processJob(job: Job): Promise<void> {
     case JOBS.billingCycle: {
       const r = await runBillingCycle()
       const notices = await sendNewWeekNotices()
-      console.log(`billing-cycle: charged ${r.charged}, swept ${r.swept}; new-week notices → ${notices.contractors} contractors, ${notices.clients} clients`)
+      console.log(`billing-cycle: charged ${r.charged}, swept ${r.swept}, timers cut ${r.timersCut}; new-week notices → ${notices.contractors} contractors, ${notices.clients} clients`)
       return
     }
     case JOBS.chargeReminders: {

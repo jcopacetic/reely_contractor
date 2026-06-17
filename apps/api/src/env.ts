@@ -31,6 +31,9 @@ const EnvSchema = z.object({
   NOTIFICATIONS_UNSUB_SECRET: z.string().optional(),
   // Where billing disputes (and other ops alerts) email the owner. Defaults to the Khaotic ops inbox.
   OPS_EMAIL: z.string().default('jonathan@khaoticdigital.com'),
+  // Timer integrity: manual time entry is BLOCKED at launch (the timer is required; no fudged/duped time).
+  // Flip to true to allow contractors to add time by hand. The browser-extension tracker is always allowed.
+  ALLOW_MANUAL_TIME: z.coerce.boolean().default(false),
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),
   R2_SECRET_ACCESS_KEY: z.string().optional(),

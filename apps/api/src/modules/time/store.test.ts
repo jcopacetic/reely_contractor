@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bucketSummary, toView, type TimeEntryView } from './store'
+import { bucketSummary, toView, timerStartGuard, type TimeEntryView } from './store'
 
 /**
  * UNIT tests for the pure logic in store.ts — no DB. We test:
@@ -264,5 +264,36 @@ describe('bucketSummary — aggregate views into billing buckets', () => {
   it('runningEntryId stays null when no entry is running', () => {
     const s = bucketSummary([view({ approved: true }), view({ disputed: true })])
     expect(s.runningEntryId).toBeNull()
+  })
+})
+
+describe('timerStartGuard — one individual, ≤2 tasks, one client', () => {
+  const t = { contractId: 'cB', clientUserId: 'client1' }
+  it('allows the first timer', () => {
+    expect(timerStartGuard([], t)).toBeNull()
+  })
+  it('allows a 2nd concurrent task for the SAME client', () => {
+    expect(timerStartGuard([{ contractId: 'cA', clientUserId: 'client1' }], t)).toBeNull()
+  })
+  it('blocks a 3rd concurrent task (cap = 2)', () => {
+    const running = [{ contractId: 'cA', clientUserId: 'client1' }, { contractId: 'cC', clientUserId: 'client1' }]
+    expect(timerStartGuard(running, t)).toBe('max_concurrent_timers')
+  })
+  it('blocks clocking a second client at the same time', () => {
+    expect(timerStartGuard([{ contractId: 'cA', clientUserId: 'other' }], t)).toBe('other_client_running')
+  })
+  it('blocks a duplicate timer on the same contract', () => {
+    expect(timerStartGuard([{ contractId: 'cB', clientUserId: 'client1' }], t)).toBe('timer_already_running')
+  })
+  it('the same-contract check wins over the cap', () => {
+    const running = [{ contractId: 'cB', clientUserId: 'client1' }, { contractId: 'cC', clientUserId: 'client1' }]
+    expect(timerStartGuard(running, t)).toBe('timer_already_running')
+  })
+  it('the other-client check wins over the cap', () => {
+    const running = [{ contractId: 'cA', clientUserId: 'client1' }, { contractId: 'cC', clientUserId: 'other' }]
+    expect(timerStartGuard(running, t)).toBe('other_client_running')
+  })
+  it('respects a custom cap', () => {
+    expect(timerStartGuard([{ contractId: 'cA', clientUserId: 'client1' }], t, 1)).toBe('max_concurrent_timers')
   })
 })

@@ -9,6 +9,7 @@
     "./router": "./src/trpc/router.ts",
     "./payments": "./src/modules/payments/store.ts",
     "./payments-notices": "./src/modules/payments/notices.ts",
+    "./time": "./src/modules/time/store.ts",
     "./notifications-email": "./src/notifications-email.ts"
   },
   "scripts": {

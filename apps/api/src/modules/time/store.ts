@@ -8,6 +8,7 @@
 import { randomUUID } from 'node:crypto'
 import { prisma } from '@contractor/db'
 import { emit } from '../../events'
+import { env } from '../../env'
 import { presignPut, presignGet } from '../../clients/r2'
 import { disabledReasonFor } from '../governance/store'
 
@@ -16,6 +17,26 @@ export const MAX_RUNNING_HOURS = 12
 /** Manual / stopped entries shorter than this are rejected (fat-finger guard). */
 export const MIN_ENTRY_SECONDS = 60
 const MAX_RUNNING_SECONDS = MAX_RUNNING_HOURS * 3600
+/** A contractor is one individual: at most this many timers run at once, all for the same client. */
+export const MAX_CONCURRENT_TIMERS = 2
+
+/**
+ * Timer-integrity guard (pure): given the contractor's currently-running timers, may they start one on `target`?
+ *  - one timer per contract (no duping the same task)        → 'timer_already_running'
+ *  - one client at a time (can't bill two people at once)    → 'other_client_running'
+ *  - at most MAX_CONCURRENT_TIMERS tasks at once             → 'max_concurrent_timers'
+ * Returns the blocking reason, or null when the start is allowed.
+ */
+export function timerStartGuard(
+  running: Array<{ contractId: string; clientUserId: string }>,
+  target: { contractId: string; clientUserId: string },
+  cap = MAX_CONCURRENT_TIMERS,
+): 'timer_already_running' | 'other_client_running' | 'max_concurrent_timers' | null {
+  if (running.some((r) => r.contractId === target.contractId)) return 'timer_already_running'
+  if (running.some((r) => r.clientUserId !== target.clientUserId)) return 'other_client_running'
+  if (running.length >= cap) return 'max_concurrent_timers'
+  return null
+}
 
 type TimeSource = 'timer' | 'extension' | 'manual'
 
@@ -83,8 +104,10 @@ export async function start(contractorUserId: string, contractId: string, input?
   if (c.status !== 'active') return { error: 'contract_not_active' }
   const blocked = await disabledReasonFor(c)
   if (blocked) return { error: blocked } // client suspended / contractor suspended / contract paused — no clocking
-  const running = await prisma.timeEntry.findFirst({ where: { contractorUserId, endedAt: null }, select: { id: true } })
-  if (running) return { error: 'timer_already_running' }
+  // Timer integrity: ≤2 concurrent tasks, all for the same client, one per contract.
+  const running = await prisma.timeEntry.findMany({ where: { contractorUserId, endedAt: null }, select: { contractId: true, contract: { select: { clientUserId: true } } } })
+  const guard = timerStartGuard(running.map((r) => ({ contractId: r.contractId, clientUserId: r.contract.clientUserId })), { contractId, clientUserId: c.clientUserId })
+  if (guard) return { error: guard }
   const e = await prisma.timeEntry.create({
     data: { contractId, contractorUserId, startedAt: new Date(), source: (input?.source ?? 'timer') as never, description: input?.description?.trim() || null },
     select: { id: true },
@@ -128,6 +151,8 @@ export async function manualEntry(
   if (c.status !== 'active') return { error: 'contract_not_active' }
   const blocked = await disabledReasonFor(c)
   if (blocked) return { error: blocked }
+  // Timer integrity: by-hand time is blocked at launch (the timer/extension is the only trusted source).
+  if ((input.source ?? 'manual') === 'manual' && !env.ALLOW_MANUAL_TIME) return { error: 'manual_entry_disabled' }
   const startedAt = new Date(input.startedAt)
   const endedAt = new Date(input.endedAt)
   if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())) return { error: 'bad_dates' }
@@ -345,4 +370,27 @@ export async function providerEntryEvidence(contractRef: string, entryId: string
   if (!e || e.contractId !== contractRef) return { error: 'not_found' }
   if (!e.contract.boardRef) return { error: 'forbidden' }
   return { samples: await loadEvidence(entryId) }
+}
+
+/**
+ * Week-boundary auto-cut (run on the weekly tick): a running timer that crosses the period boundary is stopped
+ * AT the boundary — so the time worked before it lands in the just-ended week's timesheet — and a fresh running
+ * entry is opened from the boundary, continuing the work into the new week. A contractor mid-task at Sunday
+ * 18:00 keeps their timer running; the time is just split cleanly across the two weeks. Idempotent-ish: only
+ * cuts entries that started strictly before the boundary.
+ */
+export async function cutRunningTimersAtBoundary(boundary: Date): Promise<{ cut: number }> {
+  const running = await prisma.timeEntry.findMany({
+    where: { endedAt: null, startedAt: { lt: boundary } },
+    select: { id: true, contractId: true, contractorUserId: true, startedAt: true, source: true, description: true },
+  })
+  let cut = 0
+  for (const e of running) {
+    const dur = Math.min(MAX_RUNNING_SECONDS, Math.max(0, Math.floor((boundary.getTime() - e.startedAt.getTime()) / 1000)))
+    await prisma.timeEntry.update({ where: { id: e.id }, data: { endedAt: boundary, durationSeconds: dur } })
+    // Continue the timer into the new week from the boundary.
+    await prisma.timeEntry.create({ data: { contractId: e.contractId, contractorUserId: e.contractorUserId, startedAt: boundary, source: e.source as never, description: e.description } })
+    cut++
+  }
+  return { cut }
 }
