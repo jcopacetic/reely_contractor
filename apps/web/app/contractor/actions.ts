@@ -1,9 +1,17 @@
 'use server'
 
 import { randomUUID } from 'node:crypto'
+import { revalidatePath } from 'next/cache'
 import { auth } from '@clerk/nextjs/server'
 import { apiMutate, apiQuery } from '@/lib/api'
 import { uploadMedia, storageConfigured, looksLikeImage } from '@/lib/storage'
+
+/** Bust the ISR cache for the public profile (every /pro/* page) + its sitemap, so editor changes show at once.
+ *  The dynamic-route form ('page') invalidates all matching paths, so we don't need the specific slug. */
+function revalidatePublicProfile(): void {
+  revalidatePath('/pro/[slug]', 'page')
+  revalidatePath('/pro/sitemap.xml')
+}
 
 // ── Image uploads (avatar + profile image blocks) → contractor's public Supabase 'media' bucket ──────
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -38,6 +46,7 @@ export async function uploadAvatarAction(formData: FormData): Promise<UploadResu
   if (!url) return { error: 'failed' }
   const r = await apiMutate<{ ok?: true; error?: string }>('profile.update', { avatarUrl: url }).catch((e: unknown) => ({ error: (e as Error).message }))
   if (r && 'error' in r && r.error) return { error: 'failed' }
+  revalidatePublicProfile()
   return { ok: true, url }
 }
 
@@ -92,7 +101,9 @@ export async function saveProfileAction(input: {
   location?: string | null
 }): Promise<Result> {
   try {
-    return await apiMutate<Result>('profile.update', input)
+    const r = await apiMutate<Result>('profile.update', input)
+    if (!r.error) revalidatePublicProfile()
+    return r
   } catch (e) {
     return { error: (e as Error).message }
   }
@@ -108,7 +119,9 @@ export async function checkSlugAction(slug: string): Promise<{ available: boolea
 
 export async function setPublicAction(isPublic: boolean): Promise<Result> {
   try {
-    return await apiMutate<Result>('profile.setPublic', { isPublic })
+    const r = await apiMutate<Result>('profile.setPublic', { isPublic })
+    if (!r.error) revalidatePublicProfile()
+    return r
   } catch (e) {
     return { error: (e as Error).message }
   }
@@ -116,7 +129,9 @@ export async function setPublicAction(isPublic: boolean): Promise<Result> {
 
 export async function setAvailabilityAction(input: { acceptingWork?: boolean; capacityHours?: number | null; awayUntil?: string | null }): Promise<Result> {
   try {
-    return await apiMutate<Result>('profile.setAvailability', input)
+    const r = await apiMutate<Result>('profile.setAvailability', input)
+    if (!r.error) revalidatePublicProfile()
+    return r
   } catch (e) {
     return { error: (e as Error).message }
   }
@@ -132,7 +147,9 @@ export async function setHireRequestStatusAction(id: string, status: 'new' | 'ha
 
 export async function setSearchableAction(searchable: boolean): Promise<Result> {
   try {
-    return await apiMutate<Result>('profile.setSearchable', { searchable })
+    const r = await apiMutate<Result>('profile.setSearchable', { searchable })
+    if (!r.error) revalidatePublicProfile()
+    return r
   } catch (e) {
     return { error: (e as Error).message }
   }
