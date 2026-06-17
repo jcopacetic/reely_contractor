@@ -18,3 +18,15 @@ export async function setContractorFlag(clerkUserId: string, on: boolean): Promi
     publicMetadata: { contractor: on ? true : null },
   })
 }
+
+/** Resolve a user's primary email + first name (for notification digests). Null when Clerk is unset or has none. */
+export async function getUserEmail(clerkUserId: string): Promise<{ email: string; firstName: string | null } | null> {
+  if (!clerk) return null
+  try {
+    const u = await clerk.users.getUser(clerkUserId)
+    const primary = u.emailAddresses.find((e) => e.id === u.primaryEmailAddressId) ?? u.emailAddresses[0]
+    return primary ? { email: primary.emailAddress, firstName: u.firstName ?? null } : null
+  } catch {
+    return null
+  }
+}

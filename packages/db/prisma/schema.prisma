@@ -431,18 +431,30 @@ model RoomRead {
   @@map("room_read")
 }
 
-/// User-scoped notification (bell + email). Sole writer = the notifications module.
+/// User-scoped notification (bell + email). Sole writer = the notifications module / emit() fan-out.
 model Notification {
   id          String    @id @default(uuid()) @db.Uuid
   userId      String    @map("user_id") // recipient Clerk id
   type        String
   payload     Json      @default("{}")
   readAt      DateTime? @map("read_at")
+  emailedAt   DateTime? @map("emailed_at") // set when included in an email digest (each notification emailed once)
   createdAt   DateTime  @default(now()) @map("created_at")
 
   @@index([userId])
   @@index([createdAt])
   @@map("notification")
+}
+
+/// Per-recipient notification preferences (keyed by Clerk user id; works for contractors AND Board clients,
+/// neither of which necessarily has another profile row). v1 = a single email-digest opt-out, flipped by the
+/// one-click unsubscribe link (HMAC-token verified). Absent row = subscribed (the default).
+model NotificationPref {
+  userId            String   @id @map("user_id")
+  emailUnsubscribed Boolean  @default(false) @map("email_unsubscribed")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_pref")
 }
 
 // ── Work-loop: marketplace (listing + bid) ──────────────────────────────────────

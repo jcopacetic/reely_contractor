@@ -9,6 +9,7 @@ export const CONTRACTOR_QUEUE = 'contractor' as const
 export const JOBS = {
   achievementsProcess: 'achievements.process',
   notifyDispatch: 'notifications.dispatch',
+  notifyDigest: 'notifications.digest',
   billingCycle: 'payments.billing-cycle',
 } as const
 

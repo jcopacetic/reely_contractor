@@ -3,6 +3,7 @@ import { CONTRACTOR_QUEUE, JOBS, connection } from './connection'
 import { processAchievements, shareWorkActivity } from './achievements'
 import { maybeRecomputeStats } from './stats'
 import { runBillingCycle } from './payments'
+import { runNotificationDigest } from '@contractor/api/notifications-email'
 import { registerSchedules } from './scheduler'
 
 const SERVICE = 'contractor-worker'
@@ -21,6 +22,11 @@ async function processJob(job: Job): Promise<void> {
     case JOBS.billingCycle: {
       const r = await runBillingCycle()
       console.log(`billing-cycle: charged ${r.charged}, swept ${r.swept}`)
+      return
+    }
+    case JOBS.notifyDigest: {
+      const r = await runNotificationDigest()
+      console.log(`notification-digest: ${r.emails} emails to ${r.recipients} recipients (${r.notifications} notifications)`)
       return
     }
     default:

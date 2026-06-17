@@ -13,12 +13,16 @@ const hasClerk =
   Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) && Boolean(process.env.CLERK_SECRET_KEY)
 
 const isPublicProfile = createRouteMatcher(['/pro/(.*)'])
+// Unsubscribe is reached from a digest email — recipients may be logged out OR be a client (non-contractor),
+// so it must be fully public (the token in the link is the auth).
+const isPublicUnsub = createRouteMatcher(['/contractor/unsubscribe'])
 const isContractorApp = createRouteMatcher(['/contractor(.*)'])
 const isApplicantArea = createRouteMatcher(['/contractor/apply', '/contractor/status'])
 const isAdminArea = createRouteMatcher(['/contractor/admin(.*)'])
 
 const clerk = clerkMiddleware(async (auth, req) => {
   if (isPublicProfile(req)) return // public, unauthenticated
+  if (isPublicUnsub(req)) return // public email-link landing (token-verified server-side)
   if (!isContractorApp(req)) return // marketing/root — untouched
 
   await auth.protect() // the whole /contractor area requires sign-in

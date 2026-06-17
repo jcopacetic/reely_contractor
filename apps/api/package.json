@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./router": "./src/trpc/router.ts",
-    "./payments": "./src/modules/payments/store.ts"
+    "./payments": "./src/modules/payments/store.ts",
+    "./notifications-email": "./src/notifications-email.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

@@ -546,6 +546,18 @@ drop policy if exists cr_party on change_request
 create policy cr_party on change_request for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
 ;
 
+-- notification_pref: a user reads/writes only their own pref; system/admin all. Backstop.
+alter table notification_pref enable row level security
+;
+drop policy if exists np_admin on notification_pref
+;
+create policy np_admin on notification_pref for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists np_self on notification_pref
+;
+create policy np_self on notification_pref for all using (user_id = current_setting('app.actor_user', true))
+;
+
 -- charter: a contract's participants read/write the kickoff charter; system/admin all. Backstop.
 alter table charter enable row level security
 ;

@@ -20,7 +20,7 @@ const NAV: NavItem[] = [
 ]
 
 // PRE-app flows (apply / status / onboarding) render bare — no club chrome.
-const BARE = ['/contractor/apply', '/contractor/status', '/contractor/onboarding']
+const BARE = ['/contractor/apply', '/contractor/status', '/contractor/onboarding', '/contractor/unsubscribe']
 
 function Brand() {
   return (
