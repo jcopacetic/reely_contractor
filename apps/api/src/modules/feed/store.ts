@@ -38,6 +38,33 @@ export async function createPost(userId: string, body: string, kind: 'update' | 
 type RawPost = { id: string; authorUserId: string; body: string; kind: string; linkUrl: string | null; linkLabel: string | null; reactionCount: number; commentCount: number; createdAt: Date }
 const POST_SELECT = { id: true, authorUserId: true, body: true, kind: true, linkUrl: true, linkLabel: true, reactionCount: true, commentCount: true, createdAt: true } as const
 
+type AuthorProfile = { displayName: string; avatarUrl: string | null; publicSlug: string | null }
+
+/**
+ * PURE view-mapper for a single raw post: resolve the author profile (falling back to the
+ * 'Contractor' placeholder when missing) + the viewer's reaction → FeedPost. No DB/clock; the
+ * resolved `profiles`/`myReactions` lookups are passed in. Exported for unit testing.
+ */
+export function mapPost(
+  p: RawPost,
+  profilesByUser: Map<string, AuthorProfile>,
+  myReactionByPost: Map<string, ReactionType>,
+): FeedPost {
+  const pr = profilesByUser.get(p.authorUserId)
+  return {
+    id: p.id,
+    author: { userId: p.authorUserId, displayName: pr?.displayName ?? 'Contractor', avatarUrl: pr?.avatarUrl ?? null, publicSlug: pr?.publicSlug ?? null },
+    body: p.body,
+    kind: p.kind,
+    linkUrl: p.linkUrl,
+    linkLabel: p.linkLabel,
+    createdAt: p.createdAt.toISOString(),
+    reactionCount: p.reactionCount,
+    commentCount: p.commentCount,
+    myReaction: myReactionByPost.get(p.id) ?? null,
+  }
+}
+
 /** Resolve author profiles + the viewer's own reactions for a batch of raw posts → FeedPost[]. */
 async function hydrate(viewerUserId: string, posts: RawPost[]): Promise<FeedPost[]> {
   if (posts.length === 0) return []
@@ -49,21 +76,7 @@ async function hydrate(viewerUserId: string, posts: RawPost[]): Promise<FeedPost
   ])
   const byUser = new Map(profiles.map((p) => [p.clerkUserId, p]))
   const myByPost = new Map(mine.map((r) => [r.postId, r.type]))
-  return posts.map((p) => {
-    const pr = byUser.get(p.authorUserId)
-    return {
-      id: p.id,
-      author: { userId: p.authorUserId, displayName: pr?.displayName ?? 'Contractor', avatarUrl: pr?.avatarUrl ?? null, publicSlug: pr?.publicSlug ?? null },
-      body: p.body,
-      kind: p.kind,
-      linkUrl: p.linkUrl,
-      linkLabel: p.linkLabel,
-      createdAt: p.createdAt.toISOString(),
-      reactionCount: p.reactionCount,
-      commentCount: p.commentCount,
-      myReaction: myByPost.get(p.id) ?? null,
-    }
-  })
+  return posts.map((p) => mapPost(p, byUser, myByPost))
 }
 
 /** Newest-first club feed (keyset on createdAt) with author profile + the caller's reaction per post. */
@@ -88,21 +101,35 @@ export async function listByAuthor(userId: string, authorUserId: string, limit =
   return hydrate(userId, posts)
 }
 
+/**
+ * PURE toggle/switch decision for a reaction. Given the user's EXISTING reaction type on the post
+ * (or null) and the NEW type they're applying, derive the `post.reaction_count` delta + the
+ * resulting `myReaction` and which write to perform:
+ *   - none→type   (no existing): create,  delta +1, myReaction = type
+ *   - type===type (same):        delete,  delta -1, myReaction = null
+ *   - other→type  (switch):      update,  delta  0, myReaction = type
+ * No DB/clock. Exported for unit testing.
+ */
+export function reactionTransition(
+  existingType: ReactionType | null,
+  type: ReactionType,
+): { op: 'create' | 'delete' | 'update'; delta: -1 | 0 | 1; myReaction: ReactionType | null } {
+  if (existingType === null) return { op: 'create', delta: 1, myReaction: type }
+  if (existingType === type) return { op: 'delete', delta: -1, myReaction: null }
+  return { op: 'update', delta: 0, myReaction: type }
+}
+
 /** Toggle/switch a reaction on a post (one per user per post). Maintains post.reaction_count. */
 export async function react(userId: string, postId: string, type: ReactionType): Promise<{ myReaction: ReactionType | null; reactionCount: number }> {
   const existing = await prisma.reaction.findUnique({ where: { userId_postId: { userId, postId } }, select: { id: true, type: true } })
 
-  let delta = 0
-  let myReaction: ReactionType | null = type
-  if (!existing) {
+  const { op, delta, myReaction } = reactionTransition(existing?.type ?? null, type)
+  if (op === 'create') {
     await prisma.reaction.create({ data: { userId, postId, type } })
-    delta = 1
-  } else if (existing.type === type) {
-    await prisma.reaction.delete({ where: { id: existing.id } })
-    delta = -1
-    myReaction = null
+  } else if (op === 'delete') {
+    await prisma.reaction.delete({ where: { id: existing!.id } })
   } else {
-    await prisma.reaction.update({ where: { id: existing.id }, data: { type } })
+    await prisma.reaction.update({ where: { id: existing!.id }, data: { type } })
   }
 
   const post = delta === 0

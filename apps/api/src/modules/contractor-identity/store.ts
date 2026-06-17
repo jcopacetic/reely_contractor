@@ -10,6 +10,13 @@ import { setContractorFlag } from '../../clerk'
 
 const INVITE_EXPIRY_DAYS = 30
 
+/** Pure: is an invite created at `createdAt` expired as of `now`? Strict `>` so the exact boundary is
+ *  still valid (matches the redeemInvite guard). Both args are epoch-ms; callers pass Date#getTime(). */
+export function isInviteExpired(createdAtMs: number, nowMs: number, expiryDays = INVITE_EXPIRY_DAYS): boolean {
+  const ageDays = (nowMs - createdAtMs) / 86_400_000
+  return ageDays > expiryDays
+}
+
 async function record(type: string, actorId: string, actorType: ActorType, payload: Prisma.InputJsonValue) {
   await prisma.appEvent.create({ data: { source: 'contractor-identity', type, actorId, actorType, payload } })
 }
@@ -27,8 +34,7 @@ export async function redeemInvite(clerkUserId: string, code: string) {
   const invite = await prisma.invite.findUnique({ where: { code } })
   if (!invite) return { error: 'invalid_code' as const }
   if (invite.status !== 'sent') return { error: 'already_used' as const }
-  const ageDays = (Date.now() - invite.createdAt.getTime()) / 86_400_000
-  if (ageDays > INVITE_EXPIRY_DAYS) {
+  if (isInviteExpired(invite.createdAt.getTime(), Date.now())) {
     await prisma.invite.update({ where: { id: invite.id }, data: { status: 'expired' } })
     return { error: 'expired' as const }
   }

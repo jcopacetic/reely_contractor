@@ -9,7 +9,13 @@ import { publicReviews } from '../reviews/store'
 
 /** Docs an applicant must accept to finish onboarding (e-sign integration deferred — acknowledgement v1). */
 export const REQUIRED_DOCS = ['contractor-agreement'] as const
-const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/** Pure slug validity check (no DB): the SLUG_RE pattern + 3–40 length window, applied to the already
+ *  trimmed+lowercased candidate. Shared shape of the inline checks in `update()` and `checkSlug()`. */
+export function isValidSlug(s: string): boolean {
+  return SLUG_RE.test(s) && s.length >= 3 && s.length <= 40
+}
 
 type Link = { label: string; url: string }
 
@@ -22,7 +28,7 @@ export type Block =
 
 /** A profile's blocks — synthesizing a single links block from the legacy flat `links` when none exist yet, so
  *  pre-builder profiles still render. The new builder writes `blocks`; `links` is kept only as this fallback. */
-function profileBlocks(blocksJson: unknown, links: Link[]): Block[] {
+export function profileBlocks(blocksJson: unknown, links: Link[]): Block[] {
   const blocks = (blocksJson as Block[] | null) ?? []
   if (blocks.length > 0) return blocks
   if (links.length > 0) return [{ id: 'legacy-links', type: 'links', title: 'Links', items: links }]

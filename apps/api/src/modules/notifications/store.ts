@@ -18,7 +18,7 @@ export type NotificationView = {
   createdAt: string
 }
 
-function toView(n: { id: string; type: string; payload: unknown; readAt: Date | null; createdAt: Date }): NotificationView {
+export function toView(n: { id: string; type: string; payload: unknown; readAt: Date | null; createdAt: Date }): NotificationView {
   const p = (n.payload ?? {}) as Record<string, unknown>
   return {
     id: n.id,

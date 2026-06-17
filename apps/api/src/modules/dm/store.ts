@@ -15,7 +15,32 @@ type Kind = 'direct' | 'hire' | 'team'
 export type RoomMsg = { id: string; body: string; fromMe: boolean; senderUserId: string; senderLabel: string; fromTenant: boolean; createdAt: string }
 export type RoomSummary = { roomId: string; kind: Kind; title: string; avatarUrl: string | null; lastMessage: { body: string; createdAt: string } | null; unread: number; lastActivityAt: string }
 
-const maxDate = (a: Date | null, b: Date): Date => (a && a > b ? a : b)
+export const maxDate = (a: Date | null, b: Date): Date => (a && a > b ? a : b)
+
+/** The unread floor for a (room,user): messages strictly after this cutoff, not sent by the user, are unread. */
+export const unreadCutoff = (joinedAt: Date, lastReadAt: Date | null): Date => maxDate(lastReadAt, joinedAt)
+
+type MsgRow = { id: string; body: string; senderUserId: string; senderTenantRef: string | null; senderLabel: string | null; createdAt: Date }
+/**
+ * Pure DB-row → RoomMsg[] view transform. Rows are passed NEWEST→oldest (as queried) and reversed to
+ * oldest→newest. A tenant-side row (senderTenantRef set) is attributed via its senderLabel ("Member" fallback)
+ * and flagged fromTenant; a contractor row resolves its display name from `names` ("Contractor" fallback).
+ * `fromMe` marks the viewer's own messages.
+ */
+export function renderRows(rows: MsgRow[], userId: string, names: Map<string, string>): RoomMsg[] {
+  return rows
+    .slice()
+    .reverse()
+    .map((m) => ({
+      id: m.id,
+      body: m.body,
+      fromMe: m.senderUserId === userId,
+      senderUserId: m.senderUserId,
+      senderLabel: m.senderTenantRef ? m.senderLabel ?? 'Member' : names.get(m.senderUserId) ?? 'Contractor',
+      fromTenant: Boolean(m.senderTenantRef),
+      createdAt: m.createdAt.toISOString(),
+    }))
+}
 
 async function profilesFor(ids: string[]): Promise<Map<string, Participant>> {
   if (ids.length === 0) return new Map()
@@ -30,7 +55,7 @@ export async function setRead(userId: string, roomId: string): Promise<void> {
 
 /** Unread in a room for a user = messages after max(lastRead, their joinedAt) not sent by them. */
 async function unreadFor(roomId: string, userId: string, joinedAt: Date, lastReadAt: Date | null): Promise<number> {
-  return prisma.roomMessage.count({ where: { roomId, createdAt: { gt: maxDate(lastReadAt, joinedAt) }, senderUserId: { not: userId } } })
+  return prisma.roomMessage.count({ where: { roomId, createdAt: { gt: unreadCutoff(joinedAt, lastReadAt) }, senderUserId: { not: userId } } })
 }
 
 type RoomRow = { id: string; kind: Kind; title: string | null; lastMessageAt: Date | null; createdAt: Date }
@@ -63,15 +88,8 @@ async function renderMessages(roomId: string, userId: string, joinedAt: Date, li
   const where: Prisma.RoomMessageWhereInput = { roomId, createdAt: before ? { gte: joinedAt, lt: new Date(before) } : { gte: joinedAt } }
   const rows = await prisma.roomMessage.findMany({ where, orderBy: { createdAt: 'desc' }, take: Math.min(limit, 100), select: { id: true, body: true, senderUserId: true, senderTenantRef: true, senderLabel: true, createdAt: true } })
   const profiles = await profilesFor([...new Set(rows.filter((m) => !m.senderTenantRef).map((m) => m.senderUserId))])
-  return rows.reverse().map((m) => ({
-    id: m.id,
-    body: m.body,
-    fromMe: m.senderUserId === userId,
-    senderUserId: m.senderUserId,
-    senderLabel: m.senderTenantRef ? m.senderLabel ?? 'Member' : profiles.get(m.senderUserId)?.displayName ?? 'Contractor',
-    fromTenant: Boolean(m.senderTenantRef),
-    createdAt: m.createdAt.toISOString(),
-  }))
+  const names = new Map([...profiles].map(([id, p]) => [id, p.displayName]))
+  return renderRows(rows, userId, names)
 }
 
 // ── native (contractor) ────────────────────────────────────────────────────────────────
