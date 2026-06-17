@@ -12,6 +12,8 @@ const providerRouter = router({
     .input(z.object({ listingRef: z.string().uuid().nullish(), bidRef: z.string().uuid().nullish(), contractorUserId: z.string().min(1), boardRef: z.string().nullish() }))
     .mutation(({ input }) => contracts.providerCreateContract(input)),
   getContract: serviceProcedure.input(z.object({ contractRef: z.string().uuid() })).query(({ input }) => contracts.providerGetContract(input.contractRef)),
+  // The Board client pauses/resumes a contract (stops the clock + notifies both parties).
+  setPaused: serviceProcedure.input(z.object({ contractRef: z.string().uuid(), paused: z.boolean() })).mutation(({ input }) => contracts.providerSetPaused(input.contractRef, input.paused)),
 })
 
 /** contracts tRPC surface — the contractor's living hire container (participant-scoped) + the Board provider. */
@@ -27,6 +29,8 @@ export const contractsRouter = router({
       return contracts.addItem(ctx.clerkUserId, contractId, item)
     }),
   updateStatus: vettedProcedure.input(z.object({ contractId: z.string().uuid(), status: contractStatus })).mutation(({ ctx, input }) => contracts.updateStatus(ctx.clerkUserId, input.contractId, input.status)),
+  // A participant pauses/resumes the contract (the client's quick control; stops the clock + notifies both).
+  setPaused: vettedProcedure.input(z.object({ contractId: z.string().uuid(), paused: z.boolean() })).mutation(({ ctx, input }) => contracts.setPaused(ctx.clerkUserId, input.contractId, input.paused)),
   // Definition of Done — the contractor drafts the acceptance bar (mutual-lock lands with the client surface).
   setDefinitionOfDone: vettedProcedure.input(z.object({ contractId: z.string().uuid(), text: z.string().max(4000) })).mutation(({ ctx, input }) => contracts.setDefinitionOfDone(ctx.clerkUserId, input.contractId, input.text)),
   provider: providerRouter,

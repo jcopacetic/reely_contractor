@@ -11,6 +11,7 @@ import { SprintPanel, type Sprint } from '@/components/sprint-panel'
 import { BlockerPanel, type Blocker } from '@/components/blocker-panel'
 import { ChangeRequestPanel, type ChangeRequest } from '@/components/change-request-panel'
 import { CharterPanel, type Charter } from '@/components/charter-panel'
+import { PauseControl } from '@/components/pause-control'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,7 +41,10 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
   return (
     <>
       <main className="mx-auto max-w-2xl px-4 py-6">
-        <Link href="/contractor/contracts" className="text-sm text-muted-foreground hover:text-foreground">← All contracts</Link>
+        <div className="flex items-center justify-between gap-3">
+          <Link href="/contractor/contracts" className="text-sm text-muted-foreground hover:text-foreground">← All contracts</Link>
+          <PauseControl contractId={contract.id} status={contract.status} />
+        </div>
         <div className="mt-4 space-y-5">
           <ContractDetail contract={contract} />
           {charter && <CharterPanel contractId={contract.id} initial={charter} />}

@@ -425,6 +425,16 @@ export async function withdrawChangeRequestAction(changeRequestId: string): Prom
   }
 }
 
+// ── Contract pause / resume ──────────────────────────────────────────────────────────────
+export async function setContractPausedAction(contractId: string, paused: boolean): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('contracts.setPaused', { contractId, paused })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 // ── Notifications (in-app bell) ──────────────────────────────────────────────────────────
 export async function notificationsUnreadAction(): Promise<number> {
   try {

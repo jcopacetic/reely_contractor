@@ -6,6 +6,8 @@
  */
 import { prisma } from '@contractor/db'
 import { emit } from '../../events'
+import { getUserEmail } from '../../clerk'
+import { sendEmail } from '../../clients/resend'
 
 export const MAX_ITEMS_PER_CONTRACT = 500
 
@@ -150,6 +152,56 @@ const TRANSITIONS: Record<ContractStatus, ContractStatus[]> = {
   paused: ['active', 'completed', 'cancelled'],
   completed: [],
   cancelled: [],
+}
+
+// ── pause / resume (a normal client control; pausing stops the clock + notifies both parties) ──────────
+type PauseContract = { clientUserId: string; contractorUserId: string; title: string; status: string }
+
+async function pauseNotify(contractId: string, title: string, clientUserId: string, contractorUserId: string, paused: boolean): Promise<void> {
+  const titleLine = paused ? `“${title}” was paused` : `“${title}” was resumed`
+  const lines = paused
+    ? [`The contract “${title}” has been paused. Time tracking is on hold until it’s resumed.`]
+    : [`The contract “${title}” has been resumed. Work and time tracking are active again.`]
+  for (const uid of [clientUserId, contractorUserId]) {
+    await prisma.notification.create({ data: { userId: uid, type: paused ? 'contract.paused' : 'contract.resumed', payload: { ceremony: 'account', title: titleLine, contractId }, emailedAt: new Date() } }).catch(() => {})
+    const who = await getUserEmail(uid).catch(() => null)
+    if (who) await sendEmail({ to: who.email, subject: titleLine, html: `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.55"><p>Hi ${who.firstName ?? 'there'},</p>${lines.map((l) => `<p>${l}</p>`).join('')}<p style="color:#888">— Reely</p></div>`, text: [`Hi ${who.firstName ?? 'there'},`, '', ...lines, '', '— Reely'].join('\n') }).catch(() => {})
+  }
+}
+
+async function applyPause(c: PauseContract, contractId: string, actorUserId: string, paused: boolean): Promise<{ ok: true } | { error: string }> {
+  const to: ContractStatus = paused ? 'paused' : 'active'
+  if (c.status === to) return { ok: true } // idempotent
+  if (!TRANSITIONS[c.status as ContractStatus].includes(to)) return { error: 'bad_transition' } // can't pause a closed contract
+  await prisma.contract.update({ where: { id: contractId }, data: { status: to as never } })
+  if (paused) {
+    // Stop any running timer on this contract — pausing disables the clock immediately.
+    const open = await prisma.timeEntry.findMany({ where: { contractId, endedAt: null }, select: { id: true, startedAt: true } })
+    const now = new Date()
+    for (const e of open) {
+      const dur = Math.min(86_400, Math.max(0, Math.floor((now.getTime() - e.startedAt.getTime()) / 1000)))
+      await prisma.timeEntry.update({ where: { id: e.id }, data: { endedAt: now, durationSeconds: dur } })
+    }
+  }
+  await emit('contracts', paused ? 'contract.paused' : 'contract.resumed', actorUserId, { contractId })
+  await pauseNotify(contractId, c.title, c.clientUserId, c.contractorUserId, paused)
+  return { ok: true }
+}
+
+/** A participant pauses/resumes a contract. Pausing stops the running clock + notifies both parties. */
+export async function setPaused(viewerUserId: string, contractId: string, paused: boolean): Promise<{ ok: true } | { error: string }> {
+  const c = await prisma.contract.findUnique({ where: { id: contractId }, select: { clientUserId: true, contractorUserId: true, title: true, status: true } })
+  if (!c) return { error: 'not_found' }
+  if (c.clientUserId !== viewerUserId && c.contractorUserId !== viewerUserId) return { error: 'forbidden' }
+  return applyPause(c, contractId, viewerUserId, paused)
+}
+
+/** The Board client pauses/resumes a Board-originated contract (boardRef-scoped). */
+export async function providerSetPaused(contractRef: string, paused: boolean): Promise<{ ok: true } | { error: string }> {
+  const c = await prisma.contract.findUnique({ where: { id: contractRef }, select: { boardRef: true, clientUserId: true, contractorUserId: true, title: true, status: true } })
+  if (!c) return { error: 'not_found' }
+  if (!c.boardRef) return { error: 'forbidden' }
+  return applyPause(c, contractRef, 'system', paused)
 }
 
 export async function updateStatus(viewerUserId: string, contractId: string, to: ContractStatus): Promise<{ ok: true } | { error: string }> {
