@@ -8,6 +8,7 @@ import { prisma } from '@contractor/db'
 import { emit } from '../../events'
 import { getUserEmail } from '../../clerk'
 import { sendEmail } from '../../clients/resend'
+import { stripeConfigured } from '../../clients/stripe'
 
 export const MAX_ITEMS_PER_CONTRACT = 500
 
@@ -45,7 +46,16 @@ export const toItem = (i: { id: string; kind: string; title: string; description
 export type CreateContractInput = { listingId?: string | null; clientUserId: string; contractorUserId: string; boardRef?: string | null; title: string; rateType: BudgetType; rateAmount: number }
 
 /** Core create. Emits contract.created (lets Board mint its grant; the contractor's first_contract later). */
-export async function createContract(input: CreateContractInput): Promise<{ contractId: string }> {
+/** Card-on-file gate: in LIVE Stripe mode a contract can't start until the client has a verified card to charge.
+ *  Stub/dev mode skips it (the weekly cycle charges in stub without a real card, so the flow stays usable). */
+export async function clientHasCardOnFile(clientUserId: string): Promise<boolean> {
+  if (!stripeConfigured()) return true
+  const b = await prisma.clientBilling.findUnique({ where: { clientUserId }, select: { status: true, defaultPaymentMethodId: true } })
+  return b?.status === 'ready' && !!b.defaultPaymentMethodId
+}
+
+export async function createContract(input: CreateContractInput): Promise<{ contractId: string } | { error: string }> {
+  if (!(await clientHasCardOnFile(input.clientUserId))) return { error: 'no_card_on_file' }
   const c = await prisma.contract.create({
     data: {
       listingId: input.listingId ?? null,
@@ -234,7 +244,7 @@ export async function providerCreateContract(input: { listingRef?: string | null
   if (!input.listingRef) return { error: 'bid_or_listing_required' }
   const l = await prisma.listing.findUnique({ where: { id: input.listingRef }, select: { ownerUserId: true, title: true, budgetType: true, budgetAmount: true } })
   if (!l) return { error: 'listing_not_found' }
-  const { contractId } = await createContract({
+  const r = await createContract({
     listingId: input.listingRef,
     clientUserId: l.ownerUserId,
     contractorUserId: input.contractorUserId,
@@ -243,7 +253,7 @@ export async function providerCreateContract(input: { listingRef?: string | null
     rateType: l.budgetType as BudgetType,
     rateAmount: l.budgetAmount == null ? 0 : Number(l.budgetAmount),
   })
-  return { contractRef: contractId }
+  return 'error' in r ? r : { contractRef: r.contractId }
 }
 
 /** A Board-originated contract + items, for Board. Scoped: only contracts carrying a boardRef. */
