@@ -59,6 +59,7 @@ afterAll(async () => {
   await prisma.post.deleteMany({ where: { authorUserId: { in: users } } })
   await prisma.appEvent.deleteMany({ where: { actorId: { in: users } } })
   await prisma.hireRequest.deleteMany({ where: { contractorUserId: { in: users } } })
+  await prisma.skillCategory.deleteMany({ where: { OR: [{ requestedBy: { in: users } }, { name: { contains: RUN } }] } })
   await prisma.notification.deleteMany({ where: { userId: { in: users } } })
   await prisma.contractorProfile.deleteMany({ where: { clerkUserId: { in: users } } })
   await prisma.contractorIdentity.deleteMany({ where: { clerkUserId: { in: users } } })
@@ -201,6 +202,37 @@ describe('catalog facets — industries + tools', () => {
   it('the catalog client degrades to [] when CATALOG_API_URL is unset (no live catalog in tests)', async () => {
     expect(await call(ctx(ALICE, 'contractor')).profile.catalogIndustries()).toEqual([])
     expect(await call(ctx(ALICE, 'contractor')).profile.searchCatalogTools({ q: 'stripe' })).toEqual([])
+  })
+})
+
+describe('skill requests (moderated vocabulary — the match key stays controlled)', () => {
+  const NAME = `E2E Skill ${RUN}`
+
+  it('a contractor requests a missing skill → pending, NOT yet in the active list', async () => {
+    expect(await call(ctx(ALICE, 'contractor')).skills.request({ name: NAME })).toEqual({ ok: true, status: 'requested' })
+    const active = await call(ctx(ALICE, 'contractor')).profile.listCategories()
+    expect(active.some((c) => c.name === NAME)).toBe(false) // not matchable until approved
+    const pending = await call(ctx(ADMIN, 'platform_admin')).skills.pending()
+    expect(pending.some((p) => p.name === NAME)).toBe(true)
+  })
+
+  it('requesting an existing active skill reports it already exists', async () => {
+    expect(await call(ctx(ALICE, 'contractor')).skills.request({ name: 'Web Development' })).toEqual({ ok: true, status: 'exists' })
+  })
+
+  it('re-requesting a pending skill is a no-op (already_pending)', async () => {
+    expect(await call(ctx(ALICE, 'contractor')).skills.request({ name: NAME })).toEqual({ ok: true, status: 'already_pending' })
+  })
+
+  it('admin approval moves it into the active, matchable list', async () => {
+    const mine = (await call(ctx(ADMIN, 'platform_admin')).skills.pending()).find((p) => p.name === NAME)!
+    expect(await call(ctx(ADMIN, 'platform_admin')).skills.approve({ id: mine.id })).toEqual({ ok: true })
+    const active = await call(ctx(ALICE, 'contractor')).profile.listCategories()
+    expect(active.some((c) => c.id === mine.id)).toBe(true)
+  })
+
+  it('a non-admin cannot read or moderate the queue', async () => {
+    await expect(call(ctx(ALICE, 'contractor')).skills.pending()).rejects.toThrow()
   })
 })
 

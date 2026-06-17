@@ -239,13 +239,17 @@ model HireRequest {
 }
 
 /// Curated skill vocabulary (admin-managed; NOT derived from Catalog taxonomy). The job↔contractor match key.
+/// Contractors can REQUEST a missing skill → it lands as pending (active=false) until an admin approves it.
 model SkillCategory {
-  id     String  @id @default(uuid()) @db.Uuid
-  name   String  @unique
-  slug   String  @unique
-  active Boolean @default(true)
-  order  Int     @default(0)
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique
+  slug        String  @unique
+  active      Boolean @default(true) // usable in pickers + matching; pending requests are active=false
+  pending     Boolean @default(false) // a contractor-requested skill awaiting admin review
+  requestedBy String? @map("requested_by") // the Clerk id who requested it (audit)
+  order       Int     @default(0)
 
+  @@index([pending])
   @@map("skill_category")
 }
 

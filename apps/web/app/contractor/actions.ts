@@ -111,6 +111,14 @@ export async function saveProfileAction(input: {
   }
 }
 
+export async function requestSkillAction(name: string): Promise<{ ok?: true; status?: string; error?: string }> {
+  try {
+    return await apiMutate<{ ok?: true; status?: string; error?: string }>('skills.request', { name })
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 export type CatalogTool = { id: string; name: string; slug: string; domain: string | null }
 
 /** Typeahead for the "tools I know" picker — proxies the catalog company search. [] on failure/unset. */

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Loader2, Check, X, ShieldCheck, UserPlus, Ban, RotateCcw, ExternalLink, Inbox, PlayCircle, CreditCard, Scale } from 'lucide-react'
+import { Loader2, Check, X, ShieldCheck, UserPlus, Ban, RotateCcw, ExternalLink, Inbox, PlayCircle, CreditCard, Scale, Tags } from 'lucide-react'
 import {
   approveApplicantAction,
   rejectApplicantAction,
@@ -12,6 +12,8 @@ import {
   resolveDisputeAction,
   createInviteAction,
   runBillingCycleAction,
+  approveSkillAction,
+  rejectSkillAction,
 } from './actions'
 
 type Party = { name: string | null; email: string | null }
@@ -28,6 +30,7 @@ type Applicant = {
   email: string | null
 }
 type ClientStanding = { clientUserId: string; status: string; reason: string | null; activeContracts: number; suspendedAt: string | null; name: string | null; email: string | null }
+type SkillRequest = { id: string; name: string; slug: string; requestedBy: string | null; order: number }
 
 const CONTRACTOR_REASONS = [
   { v: 'conduct', l: 'Conduct concern' },
@@ -54,7 +57,7 @@ function fmtDate(iso: string): string {
   }
 }
 
-export function AdminConsole({ applicants, clients, disputes }: { applicants: Applicant[]; clients: ClientStanding[]; disputes: Dispute[] }) {
+export function AdminConsole({ applicants, clients, disputes, skillRequests }: { applicants: Applicant[]; clients: ClientStanding[]; disputes: Dispute[]; skillRequests: SkillRequest[] }) {
   const [rows, setRows] = useState(applicants)
 
   return (
@@ -88,10 +91,55 @@ export function AdminConsole({ applicants, clients, disputes }: { applicants: Ap
         )}
       </section>
 
+      <SkillRequests requests={skillRequests} />
       <ClientStandings clients={clients} />
       <ManageContractor />
       <OpsPanel />
     </main>
+  )
+}
+
+function SkillRequests({ requests }: { requests: SkillRequest[] }) {
+  const [rows, setRows] = useState(requests)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [, start] = useTransition()
+  if (rows.length === 0) return null // hidden when clear
+
+  function act(id: string, kind: 'approve' | 'reject') {
+    setBusy(id)
+    start(async () => {
+      const r = kind === 'approve' ? await approveSkillAction(id) : await rejectSkillAction(id)
+      if (!r.error) setRows((xs) => xs.filter((x) => x.id !== id))
+      setBusy(null)
+    })
+  }
+
+  return (
+    <section className="mt-8 rounded-xl border border-border bg-card p-5">
+      <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
+        <Tags className="size-4 text-muted-foreground" /> Skill requests
+        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">{rows.length}</span>
+      </h2>
+      <p className="mb-3 text-sm text-muted-foreground">Contractors requested these skills. Approving adds them to the shared list (matchable on jobs); rejecting removes the request.</p>
+      <ul className="space-y-2">
+        {rows.map((s) => (
+          <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{s.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{s.slug}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => act(s.id, 'approve')} disabled={busy === s.id} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60">
+                {busy === s.id ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />} Approve
+              </button>
+              <button type="button" onClick={() => act(s.id, 'reject')} disabled={busy === s.id} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-sm text-muted-foreground hover:text-destructive disabled:opacity-60">
+                <X className="size-3.5" /> Reject
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

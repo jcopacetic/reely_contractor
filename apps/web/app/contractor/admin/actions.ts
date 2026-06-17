@@ -29,6 +29,14 @@ async function adminMutate(proc: string, input: unknown): Promise<Result> {
   }
 }
 
+/** Skill-request moderation — approve a requested skill into the shared list, or reject (remove) it. */
+export async function approveSkillAction(id: string): Promise<Result> {
+  return adminMutate('skills.approve', { id })
+}
+export async function rejectSkillAction(id: string): Promise<Result> {
+  return adminMutate('skills.reject', { id })
+}
+
 /** Approve an applicant → vetted + the Clerk contractor flag (they can enter the club immediately). */
 export async function approveApplicantAction(userId: string): Promise<Result> {
   return adminMutate('identity.approve', { userId })

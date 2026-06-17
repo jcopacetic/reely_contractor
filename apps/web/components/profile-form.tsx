@@ -7,6 +7,7 @@ import { saveProfileAction, checkSlugAction, setPublicAction, setAvailabilityAct
 import { ProfileBlocksEditor } from '@/components/profile-blocks-editor'
 import { AvatarUploader } from '@/components/avatar-uploader'
 import { CatalogToolPicker } from '@/components/catalog-tool-picker'
+import { SkillPicker } from '@/components/skill-picker'
 import { cleanBlocks, type Block } from '@/lib/profile-blocks'
 
 type Category = { id: string; name: string; slug: string }
@@ -249,17 +250,8 @@ export function ProfileForm({
         {initial?.vetted && <p className="mt-3 text-xs text-muted-foreground">You’re a <span className="font-medium text-primary">vetted contractor</span> — that badge shows on your public profile.</p>}
       </Section>
 
-      <Section title="Skills" hint="What you do. These match you to fitting job briefs — and show on your profile.">
-        <div className="flex flex-wrap gap-2">
-          {categories.map((c) => {
-            const on = cats.has(c.id)
-            return (
-              <button key={c.id} type="button" onClick={() => toggleCat(c.id)} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition ${on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}>
-                {on && <Check className="size-3" />} {c.name}
-              </button>
-            )
-          })}
-        </div>
+      <Section title="Skills" hint="What you do. These match you to fitting job briefs — search and add what fits. Don’t see your skill? Request it and we’ll add it.">
+        <SkillPicker categories={categories} selected={cats} onToggle={toggleCat} />
       </Section>
 
       <Section title="Industries" hint="The sectors you’ve worked in — drawn from the Reely catalog, so your profile lines up with how clients browse. Pick the ones that fit.">
