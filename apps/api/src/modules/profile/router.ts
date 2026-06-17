@@ -33,6 +33,7 @@ export const profileRouter = router({
         links: z.array(linkSchema).max(10).optional(),
         blocks: z.array(blockSchema).max(20).optional(),
         categoryIds: z.array(z.string().uuid()).max(12).optional(),
+        publicSlug: z.string().max(40).nullish(), // the store trims/lowercases + validates SLUG_RE; empty clears it
         ratePublic: z.number().int().min(0).max(100000).nullish(),
         location: z.string().max(120).nullish(),
       }),

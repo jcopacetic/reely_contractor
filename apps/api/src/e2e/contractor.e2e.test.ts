@@ -112,6 +112,17 @@ describe('public-field discipline', () => {
   })
 })
 
+describe('publish flow — slug persists on save, then go public', () => {
+  it('a slug set via profile.update persists, so setPublic succeeds (regression: slug_required)', async () => {
+    const slug = `${RUN}-carol-pub`
+    expect(await call(ctx(CAROL, 'contractor')).profile.update({ publicSlug: slug })).toEqual({ ok: true })
+    const own = await call(ctx(CAROL, 'contractor')).profile.getOwn()
+    expect(own.profile?.publicSlug).toBe(slug) // the slug actually saved (was silently dropped by the router)
+    expect(await call(ctx(CAROL, 'contractor')).profile.setPublic({ isPublic: true })).toEqual({ ok: true })
+    expect(await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug })).toBeTruthy()
+  })
+})
+
 describe('hire requests (the public hire box)', () => {
   const anon = ctx(undefined, 'applicant', false) // an anonymous public visitor
 
