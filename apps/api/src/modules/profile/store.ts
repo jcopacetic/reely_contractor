@@ -35,6 +35,18 @@ export function profileBlocks(blocksJson: unknown, links: Link[]): Block[] {
   return []
 }
 
+export type AvailabilityInput = { acceptingWork: boolean; capacityHours: number | null; awayUntil: Date | null }
+export type Availability = { state: 'available' | 'away' | 'unavailable'; capacityHours: number | null; awayUntil: string | null }
+
+/** Derive the single public availability chip from the three stored fields. `now` is injected for testability.
+ *  Away (a future awayUntil) wins over everything; then the accepting-work flag; otherwise available, carrying
+ *  the optional weekly capacity. The web composes the human label + color from `state`. */
+export function availabilityStatus(p: AvailabilityInput, now: Date): Availability {
+  if (p.awayUntil && p.awayUntil.getTime() > now.getTime()) return { state: 'away', capacityHours: null, awayUntil: p.awayUntil.toISOString() }
+  if (!p.acceptingWork) return { state: 'unavailable', capacityHours: null, awayUntil: null }
+  return { state: 'available', capacityHours: p.capacityHours && p.capacityHours > 0 ? p.capacityHours : null, awayUntil: null }
+}
+
 async function identityId(clerkUserId: string): Promise<string | null> {
   const i = await prisma.contractorIdentity.findUnique({ where: { clerkUserId }, select: { id: true } })
   return i?.id ?? null
@@ -42,7 +54,7 @@ async function identityId(clerkUserId: string): Promise<string | null> {
 
 /** The editor view: the own profile + accepted docs + onboarding state. Null until first save. */
 export async function getOwn(clerkUserId: string) {
-  const p = await prisma.contractorProfile.findUnique({ where: { clerkUserId } })
+  const p = await prisma.contractorProfile.findUnique({ where: { clerkUserId }, include: { identity: { select: { status: true } } } })
   if (!p) return { profile: null, requiredDocs: REQUIRED_DOCS, acceptedDocs: [] as string[] }
   const docs = await prisma.onboardingDoc.findMany({ where: { clerkUserId }, select: { docKey: true } })
   return {
@@ -63,6 +75,10 @@ export async function getOwn(clerkUserId: string) {
       onboarded: Boolean(p.onboardedAt),
       contractsCompleted: p.contractsCompleted,
       hoursLogged: Number(p.hoursLogged),
+      acceptingWork: p.acceptingWork,
+      capacityHours: p.capacityHours,
+      awayUntil: p.awayUntil ? p.awayUntil.toISOString() : null,
+      vetted: p.identity.status === 'vetted',
     },
     requiredDocs: REQUIRED_DOCS,
     acceptedDocs: docs.map((d) => d.docKey),
@@ -72,7 +88,7 @@ export async function getOwn(clerkUserId: string) {
 /** Upsert the editable profile fields (basics + links + categories) in one save. Validates categories. */
 export async function update(
   clerkUserId: string,
-  patch: { firstName?: string; lastName?: string; company?: string | null; position?: string | null; displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; blocks?: Block[]; categoryIds?: string[]; publicSlug?: string | null },
+  patch: { firstName?: string; lastName?: string; company?: string | null; position?: string | null; displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; blocks?: Block[]; categoryIds?: string[]; publicSlug?: string | null; acceptingWork?: boolean; capacityHours?: number | null; awayUntil?: string | null },
 ): Promise<{ ok: true } | { error: string }> {
   const idId = await identityId(clerkUserId)
   if (!idId) return { error: 'no_identity' }
@@ -110,6 +126,9 @@ export async function update(
   if (patch.blocks !== undefined) data.blocks = patch.blocks as unknown as Prisma.InputJsonValue
   if (categoryIds !== undefined) data.categoryIds = categoryIds as unknown as Prisma.InputJsonValue
   if (publicSlug !== undefined) data.publicSlug = publicSlug
+  if (patch.acceptingWork !== undefined) data.acceptingWork = patch.acceptingWork
+  if (patch.capacityHours !== undefined) data.capacityHours = patch.capacityHours && patch.capacityHours > 0 ? Math.min(168, Math.floor(patch.capacityHours)) : null
+  if (patch.awayUntil !== undefined) data.awayUntil = patch.awayUntil ? new Date(patch.awayUntil) : null
 
   try {
     await prisma.contractorProfile.upsert({
@@ -134,6 +153,25 @@ export async function update(
     })
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') return { error: 'slug_taken' }
+    throw e
+  }
+  await emit('profile', 'profile.updated', clerkUserId, { userId: clerkUserId })
+  return { ok: true }
+}
+
+/** Lightweight availability write (its own path so the chip can toggle without a full profile Save). */
+export async function setAvailability(
+  clerkUserId: string,
+  input: { acceptingWork?: boolean; capacityHours?: number | null; awayUntil?: string | null },
+): Promise<{ ok: true } | { error: string }> {
+  const data: Prisma.ContractorProfileUncheckedUpdateInput = {}
+  if (input.acceptingWork !== undefined) data.acceptingWork = input.acceptingWork
+  if (input.capacityHours !== undefined) data.capacityHours = input.capacityHours && input.capacityHours > 0 ? Math.min(168, Math.floor(input.capacityHours)) : null
+  if (input.awayUntil !== undefined) data.awayUntil = input.awayUntil ? new Date(input.awayUntil) : null
+  try {
+    await prisma.contractorProfile.update({ where: { clerkUserId }, data })
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') return { error: 'no_profile' }
     throw e
   }
   await emit('profile', 'profile.updated', clerkUserId, { userId: clerkUserId })
@@ -204,7 +242,7 @@ export async function listPublicSlugs(): Promise<Array<{ slug: string; updatedAt
 export async function getPublic(slug: string) {
   const p = await prisma.contractorProfile.findFirst({
     where: { publicSlug: slug.toLowerCase(), isPublic: true },
-    select: { clerkUserId: true, displayName: true, company: true, position: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, blocks: true, contractsCompleted: true, hoursLogged: true },
+    select: { clerkUserId: true, displayName: true, company: true, position: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, blocks: true, contractsCompleted: true, hoursLogged: true, acceptingWork: true, capacityHours: true, awayUntil: true, identity: { select: { status: true } } },
   })
   if (!p) return null
   const ids = (p.categoryIds as unknown as string[]) ?? []
@@ -225,6 +263,8 @@ export async function getPublic(slug: string) {
     blocks: profileBlocks(p.blocks, links),
     contractsCompleted: p.contractsCompleted,
     hoursLogged: Number(p.hoursLogged),
+    vetted: p.identity.status === 'vetted',
+    availability: availabilityStatus({ acceptingWork: p.acceptingWork, capacityHours: p.capacityHours, awayUntil: p.awayUntil }, new Date()),
     reviews,
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { profileBlocks, isValidSlug, SLUG_RE, type Block } from './store'
+import { profileBlocks, isValidSlug, SLUG_RE, availabilityStatus, type Block } from './store'
 
 // Pure-logic unit tests (NO DB). Two targets:
 //   1. profileBlocks() — the view builder that turns stored blocks JSON into Block[], with the legacy-links
@@ -174,5 +174,40 @@ describe('isValidSlug — pattern + length window (the update()/checkSlug() pred
     const normalized = raw.trim().toLowerCase()
     expect(normalized).toBe('john-doe')
     expect(isValidSlug(normalized)).toBe(true)
+  })
+})
+
+describe('availabilityStatus', () => {
+  const now = new Date('2026-06-17T12:00:00.000Z')
+
+  it('available when accepting work and no capacity/away', () => {
+    expect(availabilityStatus({ acceptingWork: true, capacityHours: null, awayUntil: null }, now)).toEqual({ state: 'available', capacityHours: null, awayUntil: null })
+  })
+
+  it('carries weekly capacity when available', () => {
+    expect(availabilityStatus({ acceptingWork: true, capacityHours: 20, awayUntil: null }, now)).toEqual({ state: 'available', capacityHours: 20, awayUntil: null })
+  })
+
+  it('drops zero/negative capacity to null', () => {
+    expect(availabilityStatus({ acceptingWork: true, capacityHours: 0, awayUntil: null }, now).capacityHours).toBeNull()
+  })
+
+  it('unavailable when not accepting work', () => {
+    expect(availabilityStatus({ acceptingWork: false, capacityHours: 40, awayUntil: null }, now)).toEqual({ state: 'unavailable', capacityHours: null, awayUntil: null })
+  })
+
+  it('away wins over everything when awayUntil is in the future', () => {
+    const away = new Date('2026-06-25T00:00:00.000Z')
+    expect(availabilityStatus({ acceptingWork: true, capacityHours: 30, awayUntil: away }, now)).toEqual({ state: 'away', capacityHours: null, awayUntil: away.toISOString() })
+  })
+
+  it('a past awayUntil is ignored (back from vacation)', () => {
+    const past = new Date('2026-06-10T00:00:00.000Z')
+    expect(availabilityStatus({ acceptingWork: true, capacityHours: null, awayUntil: past }, now).state).toBe('available')
+  })
+
+  it('not-accepting still wins when away is in the past', () => {
+    const past = new Date('2026-06-10T00:00:00.000Z')
+    expect(availabilityStatus({ acceptingWork: false, capacityHours: null, awayUntil: past }, now).state).toBe('unavailable')
   })
 })

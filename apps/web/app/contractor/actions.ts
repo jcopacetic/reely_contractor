@@ -112,6 +112,14 @@ export async function setPublicAction(isPublic: boolean): Promise<Result> {
   }
 }
 
+export async function setAvailabilityAction(input: { acceptingWork?: boolean; capacityHours?: number | null; awayUntil?: string | null }): Promise<Result> {
+  try {
+    return await apiMutate<Result>('profile.setAvailability', input)
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 export async function acceptDocAction(docKey: string): Promise<Result> {
   try {
     return await apiMutate<Result>('profile.acceptDoc', { docKey })

@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2, Check, ExternalLink, Globe } from 'lucide-react'
-import { saveProfileAction, checkSlugAction, setPublicAction, acceptDocAction, completeOnboardingAction } from '@/app/contractor/actions'
+import { saveProfileAction, checkSlugAction, setPublicAction, setAvailabilityAction, acceptDocAction, completeOnboardingAction } from '@/app/contractor/actions'
 import { ProfileBlocksEditor } from '@/components/profile-blocks-editor'
 import { AvatarUploader } from '@/components/avatar-uploader'
 import { cleanBlocks, type Block } from '@/lib/profile-blocks'
@@ -21,6 +21,10 @@ export type ProfileInitial = {
   categoryIds: string[]
   isPublic: boolean
   publicSlug: string | null
+  acceptingWork: boolean
+  capacityHours: number | null
+  awayUntil: string | null
+  vetted: boolean
 } | null
 
 /** Shared profile editor + onboarding setup. `mode='onboarding'` adds the agreement gate + Finish button. */
@@ -49,6 +53,9 @@ export function ProfileForm({
   const [cats, setCats] = useState<Set<string>>(new Set(initial?.categoryIds ?? []))
   const [slug, setSlug] = useState(initial?.publicSlug ?? '')
   const [isPublic, setIsPublic] = useState(initial?.isPublic ?? false)
+  const [acceptingWork, setAcceptingWork] = useState(initial?.acceptingWork ?? true)
+  const [capacityHours, setCapacityHours] = useState(initial?.capacityHours != null ? String(initial.capacityHours) : '')
+  const [awayUntil, setAwayUntil] = useState(initial?.awayUntil ? initial.awayUntil.slice(0, 10) : '')
   const [agreed, setAgreed] = useState(requiredDocs.every((d) => acceptedDocs.includes(d)))
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -119,6 +126,18 @@ export function ProfileForm({
     })
   }
 
+  // Availability saves on its own path (the most-touched control shouldn't need a full profile Save).
+  function saveAvailability() {
+    setErr(null); setMsg(null)
+    start(async () => {
+      const cap = capacityHours.trim() ? Math.max(0, Math.min(168, Math.round(Number(capacityHours)))) : null
+      const away = awayUntil ? new Date(`${awayUntil}T00:00:00.000Z`).toISOString() : null
+      const r = await setAvailabilityAction({ acceptingWork, capacityHours: cap, awayUntil: away })
+      if (r.error) setErr(r.error)
+      else setMsg('Availability updated.')
+    })
+  }
+
   function toggleAgree() {
     if (agreed) return
     start(async () => {
@@ -165,6 +184,30 @@ export function ProfileForm({
         <Field label="Bio">
           <textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={4} className={`${inputCls} resize-y`} placeholder="A short intro for your public profile." />
         </Field>
+      </Section>
+
+      <Section title="Availability" hint="Tell clients whether you can take on work — it shows as a status on your public profile.">
+        <label className="flex items-center gap-2.5 text-sm">
+          <input type="checkbox" checked={acceptingWork} onChange={(e) => setAcceptingWork(e.target.checked)} className="size-4" />
+          <span>I’m accepting new work</span>
+        </label>
+        <div className="mt-3 flex flex-wrap items-end gap-4">
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium">Capacity (optional)</span>
+            <div className="flex items-center gap-2">
+              <input type="number" min={0} max={168} value={capacityHours} onChange={(e) => setCapacityHours(e.target.value)} className={`${inputCls} w-24`} placeholder="20" />
+              <span className="text-sm text-muted-foreground">hrs / week</span>
+            </div>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium">Away until (optional)</span>
+            <input type="date" value={awayUntil} onChange={(e) => setAwayUntil(e.target.value)} className={inputCls} />
+          </label>
+        </div>
+        <button type="button" onClick={saveAvailability} disabled={pending} className="mt-3 inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-muted disabled:opacity-60">
+          {pending ? <Loader2 className="size-4 animate-spin" /> : null} Update availability
+        </button>
+        {initial?.vetted && <p className="mt-3 text-xs text-muted-foreground">You’re a <span className="font-medium text-primary">vetted contractor</span> — that badge shows on your public profile.</p>}
       </Section>
 
       <Section title="Skills" hint="What you do. These match you to fitting job briefs — and show on your profile.">

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { Briefcase, Clock, ExternalLink, Star } from 'lucide-react'
+import { BadgeCheck, Briefcase, Clock, ExternalLink, Star } from 'lucide-react'
 import { apiQuery } from '@/lib/api'
 import { JsonLd } from '@/components/json-ld'
 import { buildMetadata, ogImage, profileLd } from '@/lib/seo'
@@ -23,6 +23,8 @@ type PublicProfile = {
   blocks: Block[]
   contractsCompleted: number
   hoursLogged: number
+  vetted: boolean
+  availability: { state: 'available' | 'away' | 'unavailable'; capacityHours: number | null; awayUntil: string | null }
   reviews: {
     avg: number
     count: number
@@ -36,6 +38,17 @@ const REVALIDATE = 3600
 
 async function getProfile(slug: string): Promise<PublicProfile> {
   return apiQuery<PublicProfile>('profile.getPublic', { slug }, { revalidate: REVALIDATE }).catch(() => null)
+}
+
+// The availability chip: one derived status, color-coded. Away formats the return date (UTC, deterministic for ISR).
+function availabilityChip(a: NonNullable<PublicProfile>['availability']): { label: string; cls: string; dot: string } {
+  if (a.state === 'away') {
+    const when = a.awayUntil ? new Date(a.awayUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : null
+    return { label: when ? `Away until ${when}` : 'Away', cls: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200', dot: 'bg-amber-500' }
+  }
+  if (a.state === 'unavailable') return { label: 'Not accepting work', cls: 'bg-muted text-muted-foreground', dot: 'bg-muted-foreground/50' }
+  const label = a.capacityHours ? `Available · ~${a.capacityHours} hrs/wk` : 'Available for work'
+  return { label, cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200', dot: 'bg-emerald-500' }
 }
 
 function describe(p: NonNullable<PublicProfile>): string {
@@ -93,6 +106,19 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
           <p className="mt-1 text-sm font-medium text-foreground/80">{[p.position, p.company].filter(Boolean).join(' · ')}</p>
         )}
         {p.headline && <p className="mt-1 text-sm text-muted-foreground">{p.headline}</p>}
+        {/* Trust + availability — the vetted badge is the platform's core conversion signal; the chip says "can I hire them?" */}
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+          {p.vetted && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary" title="Screened and approved by Reely">
+              <BadgeCheck className="size-3.5" /> Vetted contractor
+            </span>
+          )}
+          {(() => { const c = availabilityChip(p.availability); return (
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${c.cls}`}>
+              <span className={`size-1.5 rounded-full ${c.dot}`} /> {c.label}
+            </span>
+          ) })()}
+        </div>
       </div>
 
       {(p.contractsCompleted > 0 || p.hoursLogged > 0) && (

@@ -90,7 +90,7 @@ describe('public-field discipline', () => {
     const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })
     expect(pub).toBeTruthy()
     expect(Object.keys(pub!).sort()).toEqual(
-      ['avatarUrl', 'bio', 'blocks', 'categories', 'company', 'contractsCompleted', 'displayName', 'headline', 'hoursLogged', 'links', 'position', 'reviews'].sort(),
+      ['availability', 'avatarUrl', 'bio', 'blocks', 'categories', 'company', 'contractsCompleted', 'displayName', 'headline', 'hoursLogged', 'links', 'position', 'reviews', 'vetted'].sort(),
     )
     // the PII-ish raw identity + account internals must be absent
     for (const leaked of ['firstName', 'lastName', 'clerkUserId', 'isPublic', 'publicSlug', 'contractorIdentityId']) {
@@ -100,6 +100,9 @@ describe('public-field discipline', () => {
     expect(pub!.displayName).toBe('Alice Anderson')
     expect(pub!.company).toBe('Acme')
     expect(pub!.position).toBe('Engineer')
+    // vetted badge + availability chip (the conversion signals) come through the safe subset
+    expect(pub!.vetted).toBe(true) // Alice is a vetted contractor
+    expect(pub!.availability.state).toBe('available') // default: accepting work, no away
   })
   it('does not expose a non-public profile (slug 404s)', async () => {
     const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-bob` })

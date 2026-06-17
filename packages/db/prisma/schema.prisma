@@ -205,6 +205,9 @@ model ContractorProfile {
   blocks              Json     @default("[]") // ordered landing-page content blocks (text/links/image/list); public
   contractsCompleted  Int      @default(0) @map("contracts_completed") // system-driven rollup; public
   hoursLogged         Decimal  @default(0) @map("hours_logged") @db.Decimal(12, 2) // system-driven rollup; public
+  acceptingWork       Boolean  @default(true) @map("accepting_work") // availability: open to new work (drives the public status chip)
+  capacityHours       Int?     @map("capacity_hours") // optional hrs/week availability (public)
+  awayUntil           DateTime? @map("away_until") // away/vacation mode end — while set + in the future the chip reads "Away until X" (public)
   onboardedAt         DateTime? @map("onboarded_at") // set when onboarding (categories + docs) completes
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
