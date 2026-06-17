@@ -15,6 +15,7 @@ import { standupRouter } from '../modules/standup/router'
 import { sprintRouter } from '../modules/sprint/router'
 import { blockerRouter } from '../modules/blocker/router'
 import { changeRequestRouter } from '../modules/change-request/router'
+import { charterRouter } from '../modules/charter/router'
 
 /**
  * Contractor api router. health + contractor-identity (apply → admin approve → vetted, Clerk role mirror)
@@ -42,6 +43,7 @@ export const appRouter = router({
   sprint: sprintRouter,
   blocker: blockerRouter,
   changeRequest: changeRequestRouter,
+  charter: charterRouter,
 })
 
 export type AppRouter = typeof appRouter

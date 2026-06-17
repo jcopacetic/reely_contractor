@@ -10,6 +10,7 @@ import { DefinitionOfDonePanel } from '@/components/definition-of-done-panel'
 import { SprintPanel, type Sprint } from '@/components/sprint-panel'
 import { BlockerPanel, type Blocker } from '@/components/blocker-panel'
 import { ChangeRequestPanel, type ChangeRequest } from '@/components/change-request-panel'
+import { CharterPanel, type Charter } from '@/components/charter-panel'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +25,7 @@ const EMPTY_TIME: TimeSummary = { entries: [], approvedSeconds: 0, pendingSecond
 
 export default async function ContractDetailPage({ params }: { params: Promise<{ contractId: string }> }) {
   const { contractId } = await params
-  const [contract, time, cycles, reviews, standups, sprints, blockers, changeRequests] = await Promise.all([
+  const [contract, time, cycles, reviews, standups, sprints, blockers, changeRequests, charter] = await Promise.all([
     apiQuery<Contract | null>('contracts.get', { contractId }).catch(() => null),
     apiQuery<TimeSummary | null>('time.listTime', { contractId }).catch(() => null),
     apiQuery<Cycle[] | null>('payments.cycles', { contractId }).catch(() => null),
@@ -33,6 +34,7 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
     apiQuery<Sprint[] | null>('sprint.list', { contractId }).catch(() => null),
     apiQuery<Blocker[] | null>('blocker.list', { contractId }).catch(() => null),
     apiQuery<ChangeRequest[] | null>('changeRequest.list', { contractId }).catch(() => null),
+    apiQuery<Charter | null>('charter.get', { contractId }).catch(() => null),
   ])
   if (!contract) notFound()
   return (
@@ -41,6 +43,7 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
         <Link href="/contractor/contracts" className="text-sm text-muted-foreground hover:text-foreground">← All contracts</Link>
         <div className="mt-4 space-y-5">
           <ContractDetail contract={contract} />
+          {charter && <CharterPanel contractId={contract.id} initial={charter} />}
           <DefinitionOfDonePanel contractId={contract.id} role={contract.role} initial={contract.definitionOfDone} />
           <SprintPanel contractId={contract.id} rateType={contract.rateType} rateAmount={contract.rateAmount} initial={sprints ?? []} />
           <BlockerPanel contractId={contract.id} initial={blockers ?? []} />

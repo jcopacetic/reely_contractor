@@ -526,6 +526,7 @@ model Contract {
   sprints      Sprint[]
   blockers     Blocker[]
   changeRequests ChangeRequest[]
+  charter      Charter?
 
   @@index([contractorUserId])
   @@index([clientUserId])
@@ -648,6 +649,29 @@ enum ChangeRequestStatus {
   proposed
   agreed
   withdrawn
+}
+
+/// An agile kickoff charter on a contract — the front-door alignment doc (goals / working agreement / success
+/// criteria) plus a close-out reflection at the end. ONE per contract (singleton). Collaborative: either party
+/// edits while in draft; an edit resets acknowledgments; both acknowledge → kicked off (kickedOffAt). At close,
+/// a shared close-out note + closedAt (the formal review stays in ContractorReview — linked, not duplicated).
+model Charter {
+  id                     String    @id @default(uuid()) @db.Uuid
+  contractId             String    @unique @map("contract_id") @db.Uuid
+  contract               Contract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  goals                  String?   @db.Text
+  workingAgreement       String?   @map("working_agreement") @db.Text
+  successCriteria        String?   @map("success_criteria") @db.Text
+  clientAcknowledged     Boolean   @default(false) @map("client_acknowledged")
+  contractorAcknowledged Boolean   @default(false) @map("contractor_acknowledged")
+  lastEditedByRole       String?   @map("last_edited_by_role") // 'client' | 'contractor'
+  kickedOffAt            DateTime? @map("kicked_off_at")
+  closeOutNote           String?   @map("close_out_note") @db.Text
+  closedAt               DateTime? @map("closed_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@map("charter")
 }
 
 /// A client's review of the contractor on a contract. `weekly` reviews are private until the contractor

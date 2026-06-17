@@ -425,6 +425,33 @@ export async function withdrawChangeRequestAction(changeRequestId: string): Prom
   }
 }
 
+// ── Charter (agile ceremony — kickoff alignment + close-out) ─────────────────────────────
+type CharterDoc = { goals?: string | null; workingAgreement?: string | null; successCriteria?: string | null }
+export async function saveCharterAction(contractId: string, doc: CharterDoc): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('charter.save', { contractId, ...doc })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function acknowledgeCharterAction(contractId: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; kickedOff?: boolean; error?: string }>('charter.acknowledge', { contractId })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+export async function closeOutCharterAction(contractId: string, note: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('charter.closeOut', { contractId, note })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 // ── Stand-ups (agile ceremony) ────────────────────────────────────────────────────────
 export async function postStandupAction(contractId: string, input: { done: string; next: string; blockers?: string }): Promise<{ ok?: true; error?: string }> {
   try {

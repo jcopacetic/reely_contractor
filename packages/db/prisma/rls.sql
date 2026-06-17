@@ -545,3 +545,15 @@ drop policy if exists cr_party on change_request
 ;
 create policy cr_party on change_request for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
 ;
+
+-- charter: a contract's participants read/write the kickoff charter; system/admin all. Backstop.
+alter table charter enable row level security
+;
+drop policy if exists ch_admin on charter
+;
+create policy ch_admin on charter for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists ch_party on charter
+;
+create policy ch_party on charter for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
+;
