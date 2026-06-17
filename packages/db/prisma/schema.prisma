@@ -539,6 +539,7 @@ model Contract {
   blockers     Blocker[]
   changeRequests ChangeRequest[]
   charter      Charter?
+  ledgerEntries LedgerEntry[]
 
   @@index([contractorUserId])
   @@index([clientUserId])
@@ -917,6 +918,60 @@ model ClientBilling {
 enum ClientBillingStatus {
   pending
   ready
+}
+
+/// The IMMUTABLE, append-only financial ledger — one row per money event (a cycle charge, a failed charge, a
+/// refund, a chargeback, a manual adjustment). The audit-grade source of truth behind dashboards / stats /
+/// exports / disputes; fully attributed so we can always answer who/where/what/why/when, and carries the Stripe
+/// ids so it's reconcilable against Stripe forever. Derived from the charge/payout lifecycle (which holds the
+/// operational state); never edited in place — a correction is a NEW row. Readable by both participants.
+model LedgerEntry {
+  id                    String     @id @default(uuid()) @db.Uuid
+  kind                  LedgerKind
+  // who
+  clientUserId          String     @map("client_user_id")
+  contractorUserId      String     @map("contractor_user_id")
+  // where
+  contractId            String?    @map("contract_id") @db.Uuid
+  contract              Contract?  @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  boardRef              String?    @map("board_ref") // → the originating project (opaque cross-app ref)
+  billingCycleId        String?    @map("billing_cycle_id") @db.Uuid
+  chargeId              String?    @map("charge_id") @db.Uuid
+  // what
+  grossAmount           Decimal    @map("gross_amount") @db.Decimal(12, 2) // what the client is billed
+  feeAmount             Decimal    @default(0) @map("fee_amount") @db.Decimal(12, 2) // platform take
+  netAmount             Decimal    @map("net_amount") @db.Decimal(12, 2) // what the contractor earns
+  currency              String     @default("usd")
+  // why / context
+  description           String
+  periodStart           DateTime?  @map("period_start") // the work week settled
+  periodEnd             DateTime?  @map("period_end")
+  taskCount             Int        @default(0) @map("task_count") // # of time entries settled (→ tasks/project)
+  totalSeconds          Int        @default(0) @map("total_seconds")
+  // stripe (reconcilable)
+  stripePaymentIntentId String?    @map("stripe_payment_intent_id")
+  stripeTransferId      String?    @map("stripe_transfer_id")
+  // outcome
+  succeeded             Boolean    @default(true)
+  failureReason         String?    @map("failure_reason")
+  // when
+  occurredAt            DateTime   @map("occurred_at")
+  idempotencyKey        String     @unique @map("idempotency_key") // one row per event; safe re-runs
+  createdAt             DateTime   @default(now()) @map("created_at")
+
+  @@index([clientUserId, occurredAt])
+  @@index([contractorUserId, occurredAt])
+  @@index([contractId])
+  @@index([billingCycleId])
+  @@map("ledger_entry")
+}
+
+enum LedgerKind {
+  charge // a successful weekly cycle charge (client debited, contractor paid)
+  charge_failed // a declined charge attempt
+  refund
+  chargeback
+  adjustment // a manual correction (admin)
 }
 
 /// Plugin-timer evidence: an activity sample tied to a time_entry (activity %, what they were on, an optional

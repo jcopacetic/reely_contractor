@@ -546,6 +546,18 @@ drop policy if exists cr_party on change_request
 create policy cr_party on change_request for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
 ;
 
+-- ledger_entry: append-only financial ledger — participants READ their own rows; only system/admin write. Backstop.
+alter table ledger_entry enable row level security
+;
+drop policy if exists le_admin on ledger_entry
+;
+create policy le_admin on ledger_entry for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists le_party on ledger_entry
+;
+create policy le_party on ledger_entry for select using (current_setting('app.actor_user', true) in (client_user_id, contractor_user_id))
+;
+
 -- notification_pref: a user reads/writes only their own pref; system/admin all. Backstop.
 alter table notification_pref enable row level security
 ;

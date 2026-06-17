@@ -9,6 +9,7 @@ import { prisma } from '@contractor/db'
 import { emit } from '../../events'
 import { env } from '../../env'
 import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured, createCustomer, createSetupIntent, createSetupCheckout, attachDefaultPaymentMethod } from '../../clients/stripe'
+import { recordLedger } from './ledger'
 
 export const DISPUTE_WINDOW_DAYS = 7
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -108,6 +109,7 @@ export async function chargeDueCycles(now = new Date()): Promise<{ charged: numb
       const tr = await transferToContractor({ accountId: acct?.stripeAccountId ?? `acct_stub_${c.contract.contractorUserId}`, amountCents: cents(net), idempotencyKey })
       await prisma.payout.create({ data: { chargeId: charge.id, stripeTransferId: tr.transferId, contractorUserId: c.contract.contractorUserId, amount: net, status: 'paid' } })
       await prisma.billingCycle.update({ where: { id: c.id }, data: { status: 'charged', chargedAt: new Date() } })
+      await recordLedger({ kind: 'charge', cycleId: c.id, clientUserId: c.contract.clientUserId, contractorUserId: c.contract.contractorUserId, gross, fee: take, net, chargeId: charge.id, stripePaymentIntentId: res.paymentIntentId, stripeTransferId: tr.transferId, succeeded: true, description: `Weekly contractor work — cycle ${c.id}`, idempotencyKey: `ledger:charge:${charge.id}` })
       await emit('payments', 'payment.charged', c.contract.contractorUserId, { cycleId: c.id, net }, 'system')
     }
     // Live: the charge row (pending) excludes the cycle from re-charging; the webhook flips it on payment_intent.succeeded.
@@ -219,7 +221,7 @@ export async function resolveCycleDispute(disputeId: string, resolution: 'charge
 /** Live-mode charge completion: flip the charge to succeeded, mark the cycle charged, then initiate the
  *  contractor payout (transfer). Idempotent — a duplicate succeeded event is a no-op. */
 async function markChargeSucceeded(paymentIntentId: string): Promise<void> {
-  const charge = await prisma.charge.findFirst({ where: { stripePaymentIntentId: paymentIntentId }, select: { id: true, status: true, billingCycleId: true, contractorUserId: true, netAmount: true, idempotencyKey: true } })
+  const charge = await prisma.charge.findFirst({ where: { stripePaymentIntentId: paymentIntentId }, select: { id: true, status: true, billingCycleId: true, clientUserId: true, contractorUserId: true, grossAmount: true, takeRateAmount: true, netAmount: true, idempotencyKey: true } })
   if (!charge || charge.status === 'succeeded') return
   await prisma.charge.update({ where: { id: charge.id }, data: { status: 'succeeded', succeededAt: new Date() } })
   await prisma.billingCycle.update({ where: { id: charge.billingCycleId }, data: { status: 'charged', chargedAt: new Date() } })
@@ -228,6 +230,7 @@ async function markChargeSucceeded(paymentIntentId: string): Promise<void> {
   // The transfer to the connected account settles synchronously when created, so the payout is 'paid' at once.
   const tr = await transferToContractor({ accountId: acct?.stripeAccountId ?? `acct_stub_${charge.contractorUserId}`, amountCents: cents(net), idempotencyKey: charge.idempotencyKey })
   await prisma.payout.upsert({ where: { chargeId: charge.id }, update: {}, create: { chargeId: charge.id, stripeTransferId: tr.transferId, contractorUserId: charge.contractorUserId, amount: net, status: 'paid' } })
+  await recordLedger({ kind: 'charge', cycleId: charge.billingCycleId, clientUserId: charge.clientUserId, contractorUserId: charge.contractorUserId, gross: Number(charge.grossAmount), fee: Number(charge.takeRateAmount), net, chargeId: charge.id, stripePaymentIntentId: paymentIntentId, stripeTransferId: tr.transferId, succeeded: true, description: `Weekly contractor work — cycle ${charge.billingCycleId}`, idempotencyKey: `ledger:charge:${charge.id}` })
   await emit('payments', 'payment.charged', charge.contractorUserId, { cycleId: charge.billingCycleId, net }, 'system')
 }
 
@@ -249,14 +252,26 @@ export async function reconcileStripeEvent(event: Stripe.Event): Promise<void> {
     case 'payment_intent.succeeded':
       await markChargeSucceeded((event.data.object as Stripe.PaymentIntent).id)
       return
-    case 'payment_intent.payment_failed':
-      await prisma.charge.updateMany({ where: { stripePaymentIntentId: (event.data.object as Stripe.PaymentIntent).id, status: 'pending' }, data: { status: 'failed' } })
+    case 'payment_intent.payment_failed': {
+      const pi = event.data.object as Stripe.PaymentIntent
+      const charge = await prisma.charge.findFirst({ where: { stripePaymentIntentId: pi.id, status: 'pending' }, select: { id: true, billingCycleId: true, clientUserId: true, contractorUserId: true, grossAmount: true, takeRateAmount: true, netAmount: true } })
+      if (!charge) return
+      await prisma.charge.update({ where: { id: charge.id }, data: { status: 'failed' } })
+      const reason = pi.last_payment_error?.decline_code ?? pi.last_payment_error?.code ?? pi.last_payment_error?.message ?? 'declined'
+      await recordLedger({ kind: 'charge_failed', cycleId: charge.billingCycleId, clientUserId: charge.clientUserId, contractorUserId: charge.contractorUserId, gross: Number(charge.grossAmount), fee: Number(charge.takeRateAmount), net: Number(charge.netAmount), chargeId: charge.id, stripePaymentIntentId: pi.id, succeeded: false, failureReason: String(reason).slice(0, 200), description: `Charge declined — cycle ${charge.billingCycleId}`, idempotencyKey: `ledger:fail:${charge.id}` })
+      // Decline → the client-standing kill-switch (auto-suspend + cascade) hooks in here as a later fenced task.
+      await emit('payments', 'charge.failed', charge.clientUserId, { cycleId: charge.billingCycleId, chargeId: charge.id }, 'system')
       return
+    }
     case 'charge.dispute.created': {
       // A card-level chargeback — flag the charge so ops can void/refund downstream (no auto money movement here).
       const pi = (event.data.object as Stripe.Dispute).payment_intent
       const piId = typeof pi === 'string' ? pi : pi?.id
-      if (piId) await prisma.charge.updateMany({ where: { stripePaymentIntentId: piId }, data: { status: 'refunded' } })
+      if (piId) {
+        const charge = await prisma.charge.findFirst({ where: { stripePaymentIntentId: piId }, select: { id: true, billingCycleId: true, clientUserId: true, contractorUserId: true, grossAmount: true, takeRateAmount: true, netAmount: true } })
+        await prisma.charge.updateMany({ where: { stripePaymentIntentId: piId }, data: { status: 'refunded' } })
+        if (charge) await recordLedger({ kind: 'chargeback', cycleId: charge.billingCycleId, clientUserId: charge.clientUserId, contractorUserId: charge.contractorUserId, gross: Number(charge.grossAmount), fee: Number(charge.takeRateAmount), net: Number(charge.netAmount), chargeId: charge.id, stripePaymentIntentId: piId, succeeded: false, failureReason: 'card dispute / chargeback', description: `Chargeback — cycle ${charge.billingCycleId}`, idempotencyKey: `ledger:chargeback:${charge.id}` })
+      }
       return
     }
     case 'setup_intent.succeeded': {
