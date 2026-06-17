@@ -425,6 +425,33 @@ export async function withdrawChangeRequestAction(changeRequestId: string): Prom
   }
 }
 
+// ── Contract agreement docs (NDA etc.) ─────────────────────────────────────────────────────
+type DocInput = { kind: 'nda' | 'ip_assignment' | 'confidentiality' | 'ic_agreement' | 'non_solicit' | 'custom'; title: string; body: string }
+export async function addContractDocAction(contractId: string, input: DocInput): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ id?: string; error?: string }>('contractDocs.add', { contractId, ...input })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) { return { error: (e as Error).message } }
+}
+export async function editContractDocAction(docId: string, input: DocInput): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('contractDocs.edit', { docId, ...input })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) { return { error: (e as Error).message } }
+}
+export async function removeContractDocAction(docId: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; error?: string }>('contractDocs.remove', { docId })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) { return { error: (e as Error).message } }
+}
+export async function signContractDocAction(docId: string, signerName: string): Promise<{ ok?: true; error?: string }> {
+  try {
+    const r = await apiMutate<{ ok?: true; executed?: boolean; error?: string }>('contractDocs.sign', { docId, signerName })
+    return r && 'error' in r && r.error ? { error: r.error } : { ok: true }
+  } catch (e) { return { error: (e as Error).message } }
+}
+
 // ── Contract pause / resume ──────────────────────────────────────────────────────────────
 export async function setContractPausedAction(contractId: string, paused: boolean): Promise<{ ok?: true; error?: string }> {
   try {

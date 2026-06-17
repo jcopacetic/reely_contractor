@@ -542,6 +542,7 @@ model Contract {
   changeRequests ChangeRequest[]
   charter      Charter?
   ledgerEntries LedgerEntry[]
+  docs         ContractDoc[]
 
   @@index([contractorUserId])
   @@index([clientUserId])
@@ -1005,6 +1006,38 @@ enum LedgerKind {
   refund
   chargeback
   adjustment // a manual correction (admin)
+}
+
+/// An OPTIONAL agreement document attached to a contract — an NDA, IP assignment, confidentiality, an independent-
+/// contractor agreement, a non-solicit, or a custom doc (started from a template or written from scratch). A
+/// participant adds it; the adder edits/removes while UNSIGNED; both parties e-sign (a typed name + timestamp =
+/// the audit trail). Once anyone has signed it locks; executed = both signed. Participant-scoped.
+model ContractDoc {
+  id                   String          @id @default(uuid()) @db.Uuid
+  contractId           String          @map("contract_id") @db.Uuid
+  contract             Contract        @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  kind                 ContractDocKind
+  title                String
+  body                 String          @db.Text
+  addedByRole          String          @map("added_by_role") // 'client' | 'contractor'
+  clientSignedAt       DateTime?       @map("client_signed_at")
+  clientSignerName     String?         @map("client_signer_name") // the typed name = the e-signature
+  contractorSignedAt   DateTime?       @map("contractor_signed_at")
+  contractorSignerName String?         @map("contractor_signer_name")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  @@index([contractId])
+  @@map("contract_doc")
+}
+
+enum ContractDocKind {
+  nda
+  ip_assignment
+  confidentiality
+  ic_agreement
+  non_solicit
+  custom
 }
 
 /// Plugin-timer evidence: an activity sample tied to a time_entry (activity %, what they were on, an optional

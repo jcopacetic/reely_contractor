@@ -582,6 +582,18 @@ drop policy if exists np_self on notification_pref
 create policy np_self on notification_pref for all using (user_id = current_setting('app.actor_user', true))
 ;
 
+-- contract_doc: a contract's participants read/sign agreement docs; system/admin all. Backstop.
+alter table contract_doc enable row level security
+;
+drop policy if exists cd_admin on contract_doc
+;
+create policy cd_admin on contract_doc for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists cd_party on contract_doc
+;
+create policy cd_party on contract_doc for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
+;
+
 -- charter: a contract's participants read/write the kickoff charter; system/admin all. Backstop.
 alter table charter enable row level security
 ;
