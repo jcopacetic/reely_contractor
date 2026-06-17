@@ -1,7 +1,13 @@
 import { z } from 'zod'
-import { router, vettedProcedure, publicProcedure } from '../../trpc/trpc'
+import { router, vettedProcedure, publicProcedure, serviceProcedure } from '../../trpc/trpc'
 import * as profile from './store'
 import { listIndustries, searchCompanies } from '../../clients/catalog'
+
+/** Board provider seam — resolve a profile slug → invite ref, and search contractors for the candidate picker. */
+const providerRouter = router({
+  resolveBySlug: serviceProcedure.input(z.object({ slug: z.string().min(1).max(40) })).query(({ input }) => profile.resolveBySlug(input.slug)),
+  searchContractors: serviceProcedure.input(z.object({ q: z.string().min(1).max(120), limit: z.number().int().min(1).max(20).optional() })).query(({ input }) => profile.searchContractors(input.q, input.limit)),
+})
 
 // User-supplied URLs are rendered into the public profile — restrict to http(s) so a `javascript:`/`data:`
 // scheme can't ride into an <a href> (z.url() alone accepts any scheme → stored XSS).
@@ -58,4 +64,5 @@ export const profileRouter = router({
   listCategories: vettedProcedure.query(() => profile.listCategories()),
   getPublic: publicProcedure.input(z.object({ slug: z.string().min(1) })).query(({ input }) => profile.getPublic(input.slug)),
   publicSitemap: publicProcedure.query(() => profile.listPublicSlugs()),
+  provider: providerRouter,
 })

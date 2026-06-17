@@ -236,6 +236,33 @@ describe('skill requests (moderated vocabulary — the match key stays controlle
   })
 })
 
+describe('provider — contractor discovery (the Board hire/invite seam)', () => {
+  it('resolveBySlug maps a public slug → the invitable contractor ref', async () => {
+    const r = await call(SVC).profile.provider.resolveBySlug({ slug: `${RUN}-alice` })
+    expect(r?.clerkUserId).toBe(ALICE)
+    expect(r?.vetted).toBe(true)
+    expect(r?.displayName).toBe('Alice Anderson')
+  })
+
+  it('resolveBySlug returns null for a non-public profile', async () => {
+    expect(await call(SVC).profile.provider.resolveBySlug({ slug: `${RUN}-bob` })).toBeNull()
+  })
+
+  it('searchContractors finds vetted + public + searchable contractors by name', async () => {
+    const hits = await call(SVC).profile.provider.searchContractors({ q: 'Anderson' })
+    expect(hits.some((h) => h.clerkUserId === ALICE && h.slug === `${RUN}-alice`)).toBe(true)
+  })
+
+  it('searchContractors excludes a non-public contractor', async () => {
+    const hits = await call(SVC).profile.provider.searchContractors({ q: 'Baker' }) // Bob Baker is non-public
+    expect(hits.some((h) => h.clerkUserId === BOB)).toBe(false)
+  })
+
+  it('the provider seam requires the service key (no anonymous discovery)', async () => {
+    await expect(call(ctx(undefined, 'applicant', false)).profile.provider.searchContractors({ q: 'Anderson' })).rejects.toThrow()
+  })
+})
+
 describe('settings — notification prefs + visibility', () => {
   it('a category channel pref persists and reads back', async () => {
     expect(await call(ctx(CAROL, 'contractor')).notifications.setPref({ category: 'work', channel: 'email', on: false })).toEqual({ ok: true })

@@ -345,3 +345,52 @@ export async function getPublic(slug: string) {
     reviews,
   }
 }
+
+export type ContractorRef = { clerkUserId: string; slug: string; displayName: string; avatarUrl: string | null; headline: string | null; vetted: boolean }
+export type ContractorSearchHit = ContractorRef & { skills: string[] }
+
+/** PROVIDER (Board): resolve a public profile slug → its invitable ref + display, so a hire flow that started
+ *  on /pro/[slug] can pre-fill the invite. Only public profiles resolve (null otherwise). */
+export async function resolveBySlug(slug: string): Promise<ContractorRef | null> {
+  const p = await prisma.contractorProfile.findFirst({
+    where: { publicSlug: slug.toLowerCase(), isPublic: true },
+    select: { clerkUserId: true, publicSlug: true, displayName: true, avatarUrl: true, headline: true, identity: { select: { status: true } } },
+  })
+  if (!p || !p.publicSlug) return null
+  return { clerkUserId: p.clerkUserId, slug: p.publicSlug, displayName: p.displayName, avatarUrl: p.avatarUrl, headline: p.headline, vetted: p.identity.status === 'vetted' }
+}
+
+/** PROVIDER (Board): search VETTED + public + searchable contractors by name/headline — powers the "invite up
+ *  to 3 candidates" picker. Bounded; safe-subset display fields + a few skill labels. */
+export async function searchContractors(q: string, limit = 10): Promise<ContractorSearchHit[]> {
+  const needle = q.trim()
+  if (!needle) return []
+  const rows = await prisma.contractorProfile.findMany({
+    where: {
+      isPublic: true,
+      searchable: true,
+      publicSlug: { not: null },
+      identity: { status: 'vetted' },
+      OR: [
+        { displayName: { contains: needle, mode: 'insensitive' } },
+        { headline: { contains: needle, mode: 'insensitive' } },
+        { company: { contains: needle, mode: 'insensitive' } },
+      ],
+    },
+    take: Math.min(20, Math.max(1, limit)),
+    orderBy: { displayName: 'asc' },
+    select: { clerkUserId: true, publicSlug: true, displayName: true, avatarUrl: true, headline: true, categoryIds: true, identity: { select: { status: true } } },
+  })
+  const allIds = [...new Set(rows.flatMap((r) => (r.categoryIds as unknown as string[]) ?? []))]
+  const cats = allIds.length ? await prisma.skillCategory.findMany({ where: { id: { in: allIds } }, select: { id: true, name: true } }) : []
+  const nameById = new Map(cats.map((c) => [c.id, c.name]))
+  return rows.map((r) => ({
+    clerkUserId: r.clerkUserId,
+    slug: r.publicSlug as string,
+    displayName: r.displayName,
+    avatarUrl: r.avatarUrl,
+    headline: r.headline,
+    vetted: r.identity.status === 'vetted',
+    skills: ((r.categoryIds as unknown as string[]) ?? []).map((id) => nameById.get(id)).filter((n): n is string => Boolean(n)).slice(0, 6),
+  }))
+}
