@@ -6,6 +6,7 @@ import * as ledger from './ledger'
 import * as dashboard from './dashboard'
 import * as disputes from './disputes'
 import * as stats from './stats'
+import { ledgerToCsv } from './export'
 
 /** Board provider surface — a Board-originated contract's billing cycles (what the client will be billed).
  *  Service-key + boardRef-scoped (never an unscoped collection). Read-only; charges stay platform-initiated. */
@@ -22,6 +23,9 @@ const providerRouter = router({
   billingStatus: serviceProcedure.input(z.object({ clientUserId: z.string().min(1) })).query(({ input }) => payments.clientBillingStatus(input.clientUserId)),
   // The client's immutable transaction record for a contract (boardRef-scoped).
   ledger: serviceProcedure.input(z.object({ contractRef: z.string().uuid() })).query(({ input }) => ledger.providerLedgerForContract(input.contractRef)),
+  // The client's transactions across the workspace's contracts — JSON rows + a CSV document, for export.
+  ledgerAll: serviceProcedure.input(z.object({ contractRefs: z.array(z.string().uuid()).max(200) })).query(({ input }) => ledger.ledgerForContracts(input.contractRefs)),
+  ledgerCsv: serviceProcedure.input(z.object({ contractRefs: z.array(z.string().uuid()).max(200) })).query(async ({ input }) => ledgerToCsv(await ledger.ledgerForContracts(input.contractRefs))),
   // The client's weekly billing dashboard across the workspace's contracts (each boardRef-scoped).
   dashboard: serviceProcedure.input(z.object({ contractRefs: z.array(z.string().uuid()).max(200) })).query(({ input }) => dashboard.providerBillingDashboard(input.contractRefs)),
   // The client's financial stats across the workspace's contracts.
@@ -36,8 +40,9 @@ export const paymentsRouter = router({
   startOnboarding: vettedProcedure.mutation(({ ctx }) => payments.startOnboarding(ctx.clerkUserId)),
   // a contract's cycles (participant-gated: the contract's client or contractor)
   cycles: vettedProcedure.input(z.object({ contractId: z.string().uuid() })).query(({ ctx, input }) => payments.listCycles(ctx.clerkUserId, input.contractId)),
-  // the contractor's own immutable transaction record (what they've earned across contracts)
+  // the contractor's own immutable transaction record (what they've earned across contracts) + a CSV export
   ledger: vettedProcedure.query(({ ctx }) => ledger.ledgerForContractor(ctx.clerkUserId)),
+  ledgerCsv: vettedProcedure.query(async ({ ctx }) => ledgerToCsv(await ledger.ledgerForContractor(ctx.clerkUserId))),
   // the contractor's weekly billing dashboard (in progress / in review / paid, by week)
   dashboard: vettedProcedure.query(({ ctx }) => dashboard.contractorBillingDashboard(ctx.clerkUserId)),
   // the contractor's financial stats (contracts ran, success rate, net earned over time)

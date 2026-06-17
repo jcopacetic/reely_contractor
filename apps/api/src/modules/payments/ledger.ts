@@ -125,3 +125,10 @@ export async function providerLedgerForContract(contractRef: string): Promise<Le
   const rows = await prisma.ledgerEntry.findMany({ where: { contractId: contractRef }, orderBy: { occurredAt: 'desc' }, take: 200, select: SELECT })
   return rows.map(toView)
 }
+
+/** The client's transactions across a set of Board-owned contracts (workspace-wide; boardRef-scoped). */
+export async function ledgerForContracts(contractRefs: string[]): Promise<LedgerView[]> {
+  if (contractRefs.length === 0) return []
+  const rows = await prisma.ledgerEntry.findMany({ where: { contractId: { in: contractRefs }, boardRef: { not: null } }, orderBy: { occurredAt: 'desc' }, take: 1000, select: SELECT })
+  return rows.map(toView)
+}
