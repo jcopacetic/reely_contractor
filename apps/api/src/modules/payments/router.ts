@@ -5,6 +5,7 @@ import * as payments from './store'
 import * as ledger from './ledger'
 import * as dashboard from './dashboard'
 import * as disputes from './disputes'
+import * as stats from './stats'
 
 /** Board provider surface — a Board-originated contract's billing cycles (what the client will be billed).
  *  Service-key + boardRef-scoped (never an unscoped collection). Read-only; charges stay platform-initiated. */
@@ -23,6 +24,8 @@ const providerRouter = router({
   ledger: serviceProcedure.input(z.object({ contractRef: z.string().uuid() })).query(({ input }) => ledger.providerLedgerForContract(input.contractRef)),
   // The client's weekly billing dashboard across the workspace's contracts (each boardRef-scoped).
   dashboard: serviceProcedure.input(z.object({ contractRefs: z.array(z.string().uuid()).max(200) })).query(({ input }) => dashboard.providerBillingDashboard(input.contractRefs)),
+  // The client's financial stats across the workspace's contracts.
+  stats: serviceProcedure.input(z.object({ contractRefs: z.array(z.string().uuid()).max(200) })).query(({ input }) => stats.providerClientStats(input.contractRefs)),
 })
 
 /** payments tRPC surface — the contractor's Connect onboarding + a contract's billing cycles + cycle disputes.
@@ -37,6 +40,8 @@ export const paymentsRouter = router({
   ledger: vettedProcedure.query(({ ctx }) => ledger.ledgerForContractor(ctx.clerkUserId)),
   // the contractor's weekly billing dashboard (in progress / in review / paid, by week)
   dashboard: vettedProcedure.query(({ ctx }) => dashboard.contractorBillingDashboard(ctx.clerkUserId)),
+  // the contractor's financial stats (contracts ran, success rate, net earned over time)
+  stats: vettedProcedure.query(({ ctx }) => stats.contractorStats(ctx.clerkUserId)),
   // a participant contests a cycle (blocks its charge until an admin resolves)
   raiseDispute: vettedProcedure.input(z.object({ billingCycleId: z.string().uuid(), reason: z.string().min(1).max(2000) })).mutation(({ ctx, input }) => payments.raiseCycleDispute(ctx.clerkUserId, input.billingCycleId, input.reason)),
   // admin: the dispute area — open disputes with full adjudication context (parties, amount, reason, card)
