@@ -38,6 +38,8 @@ export const paymentsRouter = router({
   // contractor Connect (Express) onboarding
   payoutAccount: vettedProcedure.query(({ ctx }) => payments.myPayoutAccount(ctx.clerkUserId)),
   startOnboarding: vettedProcedure.mutation(({ ctx }) => payments.startOnboarding(ctx.clerkUserId)),
+  // a single-use link to the Stripe Express dashboard — tax forms (1099s), tax settings, payout history
+  dashboardLink: vettedProcedure.mutation(({ ctx }) => payments.dashboardLink(ctx.clerkUserId)),
   // a contract's cycles (participant-gated: the contract's client or contractor)
   cycles: vettedProcedure.input(z.object({ contractId: z.string().uuid() })).query(({ ctx, input }) => payments.listCycles(ctx.clerkUserId, input.contractId)),
   // the contractor's own immutable transaction record (what they've earned across contracts) + a CSV export

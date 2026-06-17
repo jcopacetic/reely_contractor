@@ -8,7 +8,7 @@ import type Stripe from 'stripe'
 import { prisma } from '@contractor/db'
 import { emit } from '../../events'
 import { env } from '../../env'
-import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured, createCustomer, createSetupIntent, createSetupCheckout, attachDefaultPaymentMethod } from '../../clients/stripe'
+import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured, createCustomer, createSetupIntent, createSetupCheckout, attachDefaultPaymentMethod, dashboardLoginLink } from '../../clients/stripe'
 import { recordLedger } from './ledger'
 import { autoSuspendClientOnDecline } from '../governance/store'
 import { notifyDisputeOpened, notifyDisputeResolved } from './disputes'
@@ -33,6 +33,14 @@ export async function startOnboarding(contractorUserId: string): Promise<{ url: 
     acct = await prisma.stripeAccount.create({ data: { contractorUserId, stripeAccountId: created.accountId }, select: { stripeAccountId: true } })
   }
   return { url: await onboardingLink(acct.stripeAccountId) }
+}
+
+/** A single-use link to the contractor's Stripe Express dashboard (tax forms / 1099s, tax settings, payout
+ *  history). Null when they haven't onboarded or Stripe is stubbed. */
+export async function dashboardLink(contractorUserId: string): Promise<{ url: string | null }> {
+  const a = await prisma.stripeAccount.findUnique({ where: { contractorUserId }, select: { stripeAccountId: true } })
+  if (!a) return { url: null }
+  return { url: await dashboardLoginLink(a.stripeAccountId).catch(() => null) }
 }
 
 /** Refresh the contractor's Connect capabilities from Stripe (also reconciled by the webhook). */

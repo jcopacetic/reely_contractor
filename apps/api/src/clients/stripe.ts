@@ -39,6 +39,15 @@ export async function onboardingLink(accountId: string): Promise<string> {
   return link.url
 }
 
+/** A single-use login link to the contractor's Stripe Express dashboard — where their tax forms (1099s), tax
+ *  settings, and payout history live. Null in stub mode (no real dashboard). */
+export async function dashboardLoginLink(accountId: string): Promise<string | null> {
+  const s = stripe()
+  if (!s) return null
+  const link = await s.accounts.createLoginLink(accountId)
+  return link.url
+}
+
 /** A Connect account's KYC/capability status. Stub → not-yet-enabled. */
 export async function accountStatus(accountId: string): Promise<{ chargesEnabled: boolean; payoutsEnabled: boolean; kyc: 'pending' | 'verified' | 'restricted' }> {
   const s = stripe()

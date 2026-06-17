@@ -425,6 +425,16 @@ export async function withdrawChangeRequestAction(changeRequestId: string): Prom
   }
 }
 
+// ── Tax & payouts: open the Stripe Express dashboard (tax forms / 1099s, tax settings) ──────
+export async function openStripeDashboardAction(): Promise<{ url?: string | null; error?: string }> {
+  try {
+    const r = await apiMutate<{ url?: string | null }>('payments.dashboardLink', {})
+    return { url: r?.url ?? null }
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
 // ── Contract agreement docs (NDA etc.) ─────────────────────────────────────────────────────
 type DocInput = { kind: 'nda' | 'ip_assignment' | 'confidentiality' | 'ic_agreement' | 'non_solicit' | 'custom'; title: string; body: string }
 export async function addContractDocAction(contractId: string, input: DocInput): Promise<{ ok?: true; error?: string }> {

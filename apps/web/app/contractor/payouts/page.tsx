@@ -3,6 +3,7 @@ import { PayoutsPanel, type PayoutAccount } from '@/components/payouts-panel'
 import { BillingDashboard, type BillingWeek } from '@/components/billing-dashboard'
 import { StatsPanel, type PartyStats } from '@/components/stats-panel'
 import { TransactionsPanel, type LedgerRow } from '@/components/transactions-panel'
+import { TaxLegalPanel } from '@/components/tax-legal-panel'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,6 +22,7 @@ export default async function PayoutsPage() {
       <StatsPanel stats={stats ?? EMPTY_STATS} side="contractor" />
       <BillingDashboard weeks={weeks ?? []} side="contractor" />
       <TransactionsPanel rows={transactions ?? []} side="contractor" exportBase="/contractor/payouts/export" />
+      <TaxLegalPanel connected={account?.connected ?? false} />
     </main>
   )
 }
