@@ -11,18 +11,37 @@ type QueueRow = { id: string; clerkUserId: string; source: string; status: strin
 export type Applicant = QueueRow & { name: string | null; email: string | null }
 type StandingRow = { clientUserId: string; status: string; reason: string | null; activeContracts: number; suspendedAt: string | null }
 export type ClientStanding = StandingRow & { name: string | null; email: string | null }
+type DisputeRow = { disputeId: string; billingCycleId: string; contractId: string; contractTitle: string; amount: number; reason: string; raisedByUserId: string; raisedByRole: 'client' | 'contractor'; clientUserId: string; contractorUserId: string; card: { hasCard: boolean; brand: string | null; last4: string | null }; createdAt: string }
+type Party = { name: string | null; email: string | null }
+export type Dispute = DisputeRow & { client: Party; contractor: Party }
 
 export default async function ContractorAdminPage() {
   const { userId, sessionClaims } = await auth()
   const role = (sessionClaims?.metadata as { role?: string } | undefined)?.role
   if (!userId || role !== 'admin') notFound() // defense in depth; middleware already gates the route
 
-  const [queue, standings] = await Promise.all([
+  const [queue, standings, disputeRows] = await Promise.all([
     apiQuery<QueueRow[]>('identity.vettingQueue').catch(() => [] as QueueRow[]),
     apiQuery<StandingRow[]>('governance.clientStandings').catch(() => [] as StandingRow[]),
+    apiQuery<DisputeRow[]>('payments.disputeQueue').catch(() => [] as DisputeRow[]),
   ])
 
-  return <AdminConsole applicants={await enrich(queue ?? [])} clients={await enrichClients(standings ?? [])} />
+  return <AdminConsole applicants={await enrich(queue ?? [])} clients={await enrichClients(standings ?? [])} disputes={await enrichDisputes(disputeRows ?? [])} />
+}
+
+/** Resolve both parties on each dispute → names/emails so the owner has the contact info to adjudicate. */
+async function enrichDisputes(rows: DisputeRow[]): Promise<Dispute[]> {
+  const map = new Map<string, Party>()
+  const ids = [...new Set(rows.flatMap((r) => [r.clientUserId, r.contractorUserId]))]
+  if (ids.length > 0) {
+    try {
+      const cc = await clerkClient()
+      const list = await cc.users.getUserList({ userId: ids, limit: ids.length })
+      for (const u of list.data) map.set(u.id, { name: [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username || null, email: u.primaryEmailAddress?.emailAddress ?? u.emailAddresses[0]?.emailAddress ?? null })
+    } catch { /* Clerk unset/unreachable — ids only */ }
+  }
+  const party = (id: string): Party => map.get(id) ?? { name: null, email: null }
+  return rows.map((r) => ({ ...r, client: party(r.clientUserId), contractor: party(r.contractorUserId) }))
 }
 
 /** Resolve client ids → names/emails so the owner has the contact info (per the kill-switch requirement). */

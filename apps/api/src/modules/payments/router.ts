@@ -4,6 +4,7 @@ import { enqueue } from '../../queue'
 import * as payments from './store'
 import * as ledger from './ledger'
 import * as dashboard from './dashboard'
+import * as disputes from './disputes'
 
 /** Board provider surface — a Board-originated contract's billing cycles (what the client will be billed).
  *  Service-key + boardRef-scoped (never an unscoped collection). Read-only; charges stay platform-initiated. */
@@ -38,6 +39,8 @@ export const paymentsRouter = router({
   dashboard: vettedProcedure.query(({ ctx }) => dashboard.contractorBillingDashboard(ctx.clerkUserId)),
   // a participant contests a cycle (blocks its charge until an admin resolves)
   raiseDispute: vettedProcedure.input(z.object({ billingCycleId: z.string().uuid(), reason: z.string().min(1).max(2000) })).mutation(({ ctx, input }) => payments.raiseCycleDispute(ctx.clerkUserId, input.billingCycleId, input.reason)),
+  // admin: the dispute area — open disputes with full adjudication context (parties, amount, reason, card)
+  disputeQueue: adminProcedure.query(() => disputes.disputeQueue()),
   // admin resolution
   resolveDispute: adminProcedure.input(z.object({ disputeId: z.string().uuid(), resolution: z.enum(['charge', 'void']), note: z.string().max(2000).optional() })).mutation(({ input }) => payments.resolveCycleDispute(input.disputeId, input.resolution, input.note)),
   // admin: fire the weekly billing tick on demand (testing + ops). Enqueues the SAME job the Sunday cron does;

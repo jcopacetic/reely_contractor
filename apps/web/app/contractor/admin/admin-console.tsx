@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Loader2, Check, X, ShieldCheck, UserPlus, Ban, RotateCcw, ExternalLink, Inbox, PlayCircle, CreditCard } from 'lucide-react'
+import { Loader2, Check, X, ShieldCheck, UserPlus, Ban, RotateCcw, ExternalLink, Inbox, PlayCircle, CreditCard, Scale } from 'lucide-react'
 import {
   approveApplicantAction,
   rejectApplicantAction,
@@ -9,9 +9,13 @@ import {
   reinstateContractorAction,
   suspendClientAction,
   reinstateClientAction,
+  resolveDisputeAction,
   createInviteAction,
   runBillingCycleAction,
 } from './actions'
+
+type Party = { name: string | null; email: string | null }
+type Dispute = { disputeId: string; billingCycleId: string; contractId: string; contractTitle: string; amount: number; reason: string; raisedByUserId: string; raisedByRole: 'client' | 'contractor'; clientUserId: string; contractorUserId: string; card: { hasCard: boolean; brand: string | null; last4: string | null }; createdAt: string; client: Party; contractor: Party }
 
 type Applicant = {
   id: string
@@ -50,7 +54,7 @@ function fmtDate(iso: string): string {
   }
 }
 
-export function AdminConsole({ applicants, clients }: { applicants: Applicant[]; clients: ClientStanding[] }) {
+export function AdminConsole({ applicants, clients, disputes }: { applicants: Applicant[]; clients: ClientStanding[]; disputes: Dispute[] }) {
   const [rows, setRows] = useState(applicants)
 
   return (
@@ -63,6 +67,7 @@ export function AdminConsole({ applicants, clients }: { applicants: Applicant[];
         </div>
       </header>
 
+      <DisputeArea disputes={disputes} />
       <InvitePanel />
 
       <section className="mt-8">
@@ -197,6 +202,66 @@ function QueueRow({ a, onDecided }: { a: Applicant; onDecided: (id: string) => v
             {pending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} Approve
           </button>
         </div>
+      </div>
+      {err && <p className="mt-2 text-sm text-destructive">{err}</p>}
+    </li>
+  )
+}
+
+const usd = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+function DisputeArea({ disputes }: { disputes: Dispute[] }) {
+  const [rows, setRows] = useState(disputes)
+  if (rows.length === 0) return null // hidden when clear — disputes are the urgent, top-of-console item
+  return (
+    <section className="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-5">
+      <h2 className="mb-1 flex items-center gap-2 font-display text-lg font-semibold">
+        <Scale className="size-4 text-amber-600" /> Billing disputes
+        <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-700">{rows.length}</span>
+      </h2>
+      <p className="mb-3 text-sm text-muted-foreground">Invoices contested inside the review period. The charge is on hold until you uphold it (proceeds to charge) or waive it (the cycle is voided).</p>
+      <ul className="space-y-3">
+        {rows.map((d) => <DisputeRow key={d.disputeId} d={d} onResolved={(id) => setRows((r) => r.filter((x) => x.disputeId !== id))} />)}
+      </ul>
+    </section>
+  )
+}
+
+function DisputeRow({ d, onResolved }: { d: Dispute; onResolved: (id: string) => void }) {
+  const [note, setNote] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+  const [pending, start] = useTransition()
+  const contact = (p: Party, id: string) => p.name ?? p.email ?? `${id.slice(0, 10)}…`
+
+  function resolve(resolution: 'charge' | 'void') {
+    setErr(null)
+    start(async () => {
+      const r = await resolveDisputeAction(d.disputeId, resolution, note.trim() || undefined)
+      if ('error' in r && r.error) setErr(r.error)
+      else onResolved(d.disputeId)
+    })
+  }
+
+  return (
+    <li className="rounded-lg border border-border bg-card p-4">
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-medium">{d.contractTitle} · <span className="font-semibold">{usd(d.amount)}</span></p>
+          <p className="text-xs text-muted-foreground">Raised by the <span className="font-medium capitalize">{d.raisedByRole}</span> · {new Date(d.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+        </div>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${d.card.hasCard ? 'bg-emerald-500/15 text-emerald-700' : 'bg-destructive/15 text-destructive'}`}>
+          {d.card.hasCard ? `${d.card.brand ?? 'card'} •••• ${d.card.last4 ?? '????'}` : 'No card on file'}
+        </span>
+      </div>
+      <p className="mb-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">{d.reason}</p>
+      <div className="mb-3 grid grid-cols-1 gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+        <p><span className="font-medium text-foreground">Client:</span> {contact(d.client, d.clientUserId)}{d.client.email && d.client.name ? ` · ${d.client.email}` : ''}</p>
+        <p><span className="font-medium text-foreground">Contractor:</span> {contact(d.contractor, d.contractorUserId)}{d.contractor.email && d.contractor.name ? ` · ${d.contractor.email}` : ''}</p>
+      </div>
+      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Resolution note (optional)" className="mb-2 h-9 w-full rounded-md border border-border bg-background px-2.5 text-sm outline-none focus:border-primary" />
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => resolve('charge')} disabled={pending} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60">{pending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} Uphold · charge</button>
+        <button type="button" onClick={() => resolve('void')} disabled={pending} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3.5 text-sm font-medium hover:bg-muted disabled:opacity-60"><X className="size-4" /> Waive · void</button>
       </div>
       {err && <p className="mt-2 text-sm text-destructive">{err}</p>}
     </li>

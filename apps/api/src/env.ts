@@ -29,6 +29,8 @@ const EnvSchema = z.object({
   NOTIFICATIONS_FROM: z.string().default('Reely <no_reply@reely.io>'),
   NOTIFICATIONS_REPLY_TO: z.string().optional(),
   NOTIFICATIONS_UNSUB_SECRET: z.string().optional(),
+  // Where billing disputes (and other ops alerts) email the owner. Defaults to the Khaotic ops inbox.
+  OPS_EMAIL: z.string().default('jonathan@khaoticdigital.com'),
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),
   R2_SECRET_ACCESS_KEY: z.string().optional(),

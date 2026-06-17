@@ -11,6 +11,7 @@ import { env } from '../../env'
 import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured, createCustomer, createSetupIntent, createSetupCheckout, attachDefaultPaymentMethod } from '../../clients/stripe'
 import { recordLedger } from './ledger'
 import { autoSuspendClientOnDecline } from '../governance/store'
+import { notifyDisputeOpened, notifyDisputeResolved } from './disputes'
 
 export const DISPUTE_WINDOW_DAYS = 7
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -201,20 +202,30 @@ export async function raiseCycleDispute(userId: string, billingCycleId: string, 
   if (!cycle) return { error: 'not_found' }
   if (!(await isParticipant(cycle.contractId, userId))) return { error: 'forbidden' }
   if (cycle.status !== 'dispute_window' && cycle.status !== 'open') return { error: 'too_late' }
-  await prisma.cycleDispute.create({ data: { billingCycleId, raisedByUserId: userId, reason: reason.trim().slice(0, 2000) } })
+  const cleanReason = reason.trim().slice(0, 2000)
+  await prisma.cycleDispute.create({ data: { billingCycleId, raisedByUserId: userId, reason: cleanReason } })
   await prisma.billingCycle.update({ where: { id: billingCycleId }, data: { status: 'disputed' } })
   await emit('payments', 'dispute.opened', userId, { billingCycleId }, 'contractor')
+  await notifyDisputeOpened(billingCycleId, userId, cleanReason) // email the owner + notify the counterparty
   return { ok: true }
 }
 
 /** An admin resolves a cycle dispute: allow the charge (back to the window) or void the cycle. */
 export async function resolveCycleDispute(disputeId: string, resolution: 'charge' | 'void', note?: string): Promise<{ ok: true } | { error: string }> {
-  const d = await prisma.cycleDispute.findUnique({ where: { id: disputeId }, select: { billingCycleId: true, status: true } })
+  const d = await prisma.cycleDispute.findUnique({
+    where: { id: disputeId },
+    select: { billingCycleId: true, status: true, cycle: { select: { totalAmount: true, contract: { select: { clientUserId: true, contractorUserId: true } } } } },
+  })
   if (!d) return { error: 'not_found' }
   if (d.status !== 'open') return { error: 'already_resolved' }
   await prisma.cycleDispute.update({ where: { id: disputeId }, data: { status: resolution === 'charge' ? 'resolved_charge' : 'resolved_void', resolutionNote: note?.trim().slice(0, 2000) || null, resolvedAt: new Date() } })
   await prisma.billingCycle.update({ where: { id: d.billingCycleId }, data: { status: resolution === 'charge' ? 'dispute_window' : 'voided' } })
+  // A waiver forgoes the revenue — record it on the immutable ledger for audit (no money moves; charge case bills later).
+  if (resolution === 'void') {
+    await recordLedger({ kind: 'adjustment', cycleId: d.billingCycleId, clientUserId: d.cycle.contract.clientUserId, contractorUserId: d.cycle.contract.contractorUserId, gross: Number(d.cycle.totalAmount), fee: 0, net: 0, succeeded: true, description: `Dispute waived — cycle ${d.billingCycleId} not billed`, idempotencyKey: `ledger:dispute-void:${d.billingCycleId}` })
+  }
   await emit('payments', 'dispute.resolved', 'system', { billingCycleId: d.billingCycleId, resolution }, 'system')
+  await notifyDisputeResolved(d.billingCycleId, resolution) // tell both parties the outcome
   return { ok: true }
 }
 

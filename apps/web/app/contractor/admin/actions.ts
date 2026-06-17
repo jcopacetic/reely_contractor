@@ -64,6 +64,11 @@ export async function runBillingCycleAction(): Promise<Result> {
   return adminMutate('payments.runBillingCycle', {})
 }
 
+/** Resolve a billing dispute — uphold (charge proceeds) or waive (cycle voided). */
+export async function resolveDisputeAction(disputeId: string, resolution: 'charge' | 'void', note?: string): Promise<Result> {
+  return adminMutate('payments.resolveDispute', { disputeId, resolution, ...(note ? { note } : {}) })
+}
+
 /** Mint an invite code for an email (admin shares it; the applicant redeems on /contractor/apply). */
 export async function createInviteAction(email: string): Promise<{ code?: string; error?: string }> {
   if (!(await isAdmin())) return { error: 'Admins only.' }
