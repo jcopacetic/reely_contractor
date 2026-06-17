@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { UserButton } from '@clerk/nextjs'
-import { Rss, UserCircle, MessagesSquare, Briefcase, Gavel, FileText, Banknote, PenSquare, type LucideIcon } from 'lucide-react'
+import { Rss, UserCircle, MessagesSquare, Briefcase, Gavel, FileText, Banknote, Inbox, PenSquare, type LucideIcon } from 'lucide-react'
 import { NotificationBell } from '@/components/notification-bell'
 
 const hasClerk = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)
@@ -14,6 +14,7 @@ const NAV: NavItem[] = [
   { key: 'jobs', href: '/contractor/work', label: 'Find Work', Icon: Briefcase, match: (p) => p.startsWith('/contractor/work') },
   { key: 'bids', href: '/contractor/bids', label: 'Bids', Icon: Gavel, match: (p) => p.startsWith('/contractor/bids') },
   { key: 'contracts', href: '/contractor/contracts', label: 'Contracts', Icon: FileText, match: (p) => p.startsWith('/contractor/contracts') },
+  { key: 'requests', href: '/contractor/requests', label: 'Requests', Icon: Inbox, match: (p) => p.startsWith('/contractor/requests') },
   { key: 'payouts', href: '/contractor/payouts', label: 'Payouts', Icon: Banknote, match: (p) => p.startsWith('/contractor/payouts') },
   { key: 'messages', href: '/contractor/dms', label: 'Messages', Icon: MessagesSquare, match: (p) => p.startsWith('/contractor/dms') },
   { key: 'profile', href: '/contractor/profile', label: 'Profile', Icon: UserCircle, match: (p) => p.startsWith('/contractor/profile') || p.startsWith('/contractor/u/') },

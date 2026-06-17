@@ -605,3 +605,15 @@ drop policy if exists ch_party on charter
 ;
 create policy ch_party on charter for all using (contract_id in (select id from contract where current_setting('app.actor_user', true) in (client_user_id, contractor_user_id)))
 ;
+
+-- hire_request: a contractor reads/handles only their own inbound leads; system/admin all. Backstop (writes api-side).
+alter table hire_request enable row level security
+;
+drop policy if exists hr_admin on hire_request
+;
+create policy hr_admin on hire_request for all using (current_setting('app.actor', true) in ('system','platform_admin')) with check (current_setting('app.actor', true) in ('system','platform_admin'))
+;
+drop policy if exists hr_self on hire_request
+;
+create policy hr_self on hire_request for all using (contractor_user_id = current_setting('app.actor_user', true))
+;

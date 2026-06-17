@@ -24,6 +24,8 @@ export type ProfileInitial = {
   acceptingWork: boolean
   capacityHours: number | null
   awayUntil: string | null
+  ratePublic: number | null
+  location: string | null
   vetted: boolean
 } | null
 
@@ -56,6 +58,8 @@ export function ProfileForm({
   const [acceptingWork, setAcceptingWork] = useState(initial?.acceptingWork ?? true)
   const [capacityHours, setCapacityHours] = useState(initial?.capacityHours != null ? String(initial.capacityHours) : '')
   const [awayUntil, setAwayUntil] = useState(initial?.awayUntil ? initial.awayUntil.slice(0, 10) : '')
+  const [ratePublic, setRatePublic] = useState(initial?.ratePublic != null ? String(initial.ratePublic) : '')
+  const [location, setLocation] = useState(initial?.location ?? '')
   const [agreed, setAgreed] = useState(requiredDocs.every((d) => acceptedDocs.includes(d)))
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -75,6 +79,8 @@ export function ProfileForm({
         blocks: cleanBlocks(blocks),
         categoryIds: [...cats],
         publicSlug: slug.trim() || null,
+        ratePublic: rateValue(ratePublic),
+        location: location.trim() || null,
       })
       if (r.error) setErr(r.error === 'slug_taken' ? 'That URL is taken — pick another.' : r.error === 'invalid_slug' ? 'URL: 3–40 lowercase letters, numbers, and dashes.' : r.error)
       else setMsg('Saved.')
@@ -111,6 +117,8 @@ export function ProfileForm({
           blocks: cleanBlocks(blocks),
           categoryIds: [...cats],
           publicSlug: slug.trim(),
+          ratePublic: rateValue(ratePublic),
+          location: location.trim() || null,
         })
         if (saved.error) {
           setErr(saved.error === 'slug_taken' ? 'That URL is taken — pick another.' : saved.error === 'invalid_slug' ? 'URL: 3–40 lowercase letters, numbers, and dashes.' : saved.error)
@@ -207,6 +215,21 @@ export function ProfileForm({
         <button type="button" onClick={saveAvailability} disabled={pending} className="mt-3 inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm hover:bg-muted disabled:opacity-60">
           {pending ? <Loader2 className="size-4 animate-spin" /> : null} Update availability
         </button>
+        <div className="mt-5 flex flex-wrap items-end gap-4 border-t border-border/60 pt-4">
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium">Public rate (optional)</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">$</span>
+              <input type="number" min={0} value={ratePublic} onChange={(e) => setRatePublic(e.target.value)} className={`${inputCls} w-24`} placeholder="125" />
+              <span className="text-sm text-muted-foreground">/ hr</span>
+            </div>
+          </label>
+          <label className="block flex-1">
+            <span className="mb-1 block text-sm font-medium">Location (optional)</span>
+            <input value={location} onChange={(e) => setLocation(e.target.value)} className={`${inputCls} w-full`} placeholder="e.g. Amarillo, TX (CST)" />
+          </label>
+        </div>
+        <p className="mt-1.5 text-xs text-muted-foreground">Rate + location show in the “Request to hire” box on your public profile. Leave the rate blank for “Rate on request.” These save with the main Save below.</p>
         {initial?.vetted && <p className="mt-3 text-xs text-muted-foreground">You’re a <span className="font-medium text-primary">vetted contractor</span> — that badge shows on your public profile.</p>}
       </Section>
 
@@ -268,6 +291,12 @@ export function ProfileForm({
 }
 
 const inputCls = 'h-9 rounded-md border border-border bg-card px-3 text-sm outline-none focus:border-primary'
+
+/** Parse the rate input to a positive integer or null (blank / non-numeric → null = "Rate on request"). */
+function rateValue(raw: string): number | null {
+  const n = Number(raw)
+  return raw.trim() && Number.isFinite(n) && n > 0 ? Math.round(n) : null
+}
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (

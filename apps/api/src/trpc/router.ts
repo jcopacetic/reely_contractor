@@ -19,6 +19,7 @@ import { charterRouter } from '../modules/charter/router'
 import { notificationsRouter } from '../modules/notifications/router'
 import { governanceRouter } from '../modules/governance/router'
 import { contractDocsRouter } from '../modules/contract-docs/router'
+import { hireRouter } from '../modules/hire/router'
 
 /**
  * Contractor api router. health + contractor-identity (apply → admin approve → vetted, Clerk role mirror)
@@ -50,6 +51,7 @@ export const appRouter = router({
   notifications: notificationsRouter,
   governance: governanceRouter,
   contractDocs: contractDocsRouter,
+  hire: hireRouter,
 })
 
 export type AppRouter = typeof appRouter

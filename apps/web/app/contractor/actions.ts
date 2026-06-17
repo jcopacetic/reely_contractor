@@ -88,6 +88,8 @@ export async function saveProfileAction(input: {
   blocks?: import('@/lib/profile-blocks').Block[]
   categoryIds?: string[]
   publicSlug?: string | null
+  ratePublic?: number | null
+  location?: string | null
 }): Promise<Result> {
   try {
     return await apiMutate<Result>('profile.update', input)
@@ -115,6 +117,14 @@ export async function setPublicAction(isPublic: boolean): Promise<Result> {
 export async function setAvailabilityAction(input: { acceptingWork?: boolean; capacityHours?: number | null; awayUntil?: string | null }): Promise<Result> {
   try {
     return await apiMutate<Result>('profile.setAvailability', input)
+  } catch (e) {
+    return { error: (e as Error).message }
+  }
+}
+
+export async function setHireRequestStatusAction(id: string, status: 'new' | 'handled' | 'archived'): Promise<Result> {
+  try {
+    return await apiMutate<Result>('hire.setStatus', { id, status })
   } catch (e) {
     return { error: (e as Error).message }
   }

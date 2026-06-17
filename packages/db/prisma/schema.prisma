@@ -208,11 +208,31 @@ model ContractorProfile {
   acceptingWork       Boolean  @default(true) @map("accepting_work") // availability: open to new work (drives the public status chip)
   capacityHours       Int?     @map("capacity_hours") // optional hrs/week availability (public)
   awayUntil           DateTime? @map("away_until") // away/vacation mode end — while set + in the future the chip reads "Away until X" (public)
+  ratePublic          Int?     @map("rate_public") // optional public hourly rate (USD/hr); null = "Rate on request" (public)
+  location            String?  // optional public location / timezone hint, free text e.g. "Amarillo, TX (CST)" (public)
   onboardedAt         DateTime? @map("onboarded_at") // set when onboarding (categories + docs) completes
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   @@map("contractor_profile")
+}
+
+/// Inbound lead from a PUBLIC profile — anyone viewing /pro/[slug] can ask to hire. The contractor reads + handles
+/// their own; writes happen api-side (the requester is anonymous). RLS is a Data-API backstop (self-scoped).
+model HireRequest {
+  id               String    @id @default(uuid()) @db.Uuid
+  contractorUserId String    @map("contractor_user_id") // the profile owner = the recipient
+  fromName         String    @map("from_name")
+  fromEmail        String    @map("from_email")
+  message          String    @db.Text
+  projectType      String?   @map("project_type") // optional free-text ("Web app", "Migration", …)
+  budget           String?   // optional free-text budget hint
+  status           String    @default("new") // new | handled | archived
+  handledAt        DateTime? @map("handled_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([contractorUserId, status])
+  @@map("hire_request")
 }
 
 /// Curated skill vocabulary (admin-managed; NOT derived from Catalog taxonomy). The job↔contractor match key.

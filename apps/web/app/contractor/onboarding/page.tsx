@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 
 type Own = {
   profile:
-    | { firstName: string; lastName: string; company: string | null; position: string | null; headline: string | null; bio: string | null; avatarUrl: string | null; blocks: Block[]; categoryIds: string[]; isPublic: boolean; publicSlug: string | null; onboarded: boolean; acceptingWork: boolean; capacityHours: number | null; awayUntil: string | null; vetted: boolean }
+    | { firstName: string; lastName: string; company: string | null; position: string | null; headline: string | null; bio: string | null; avatarUrl: string | null; blocks: Block[]; categoryIds: string[]; isPublic: boolean; publicSlug: string | null; onboarded: boolean; acceptingWork: boolean; capacityHours: number | null; awayUntil: string | null; ratePublic: number | null; location: string | null; vetted: boolean }
     | null
   requiredDocs: string[]
   acceptedDocs: string[]
@@ -34,6 +34,8 @@ export default async function OnboardingPage() {
         acceptingWork: own.profile.acceptingWork,
         capacityHours: own.profile.capacityHours,
         awayUntil: own.profile.awayUntil,
+        ratePublic: own.profile.ratePublic,
+        location: own.profile.location,
         vetted: own.profile.vetted,
       }
     : null

@@ -58,6 +58,8 @@ afterAll(async () => {
   await prisma.contract.deleteMany({ where: { OR: [{ clientUserId: { in: users } }, { contractorUserId: { in: users } }] } }) // cascades time_entry → time_activity
   await prisma.post.deleteMany({ where: { authorUserId: { in: users } } })
   await prisma.appEvent.deleteMany({ where: { actorId: { in: users } } })
+  await prisma.hireRequest.deleteMany({ where: { contractorUserId: { in: users } } })
+  await prisma.notification.deleteMany({ where: { userId: { in: users } } })
   await prisma.contractorProfile.deleteMany({ where: { clerkUserId: { in: users } } })
   await prisma.contractorIdentity.deleteMany({ where: { clerkUserId: { in: users } } })
 })
@@ -90,7 +92,7 @@ describe('public-field discipline', () => {
     const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })
     expect(pub).toBeTruthy()
     expect(Object.keys(pub!).sort()).toEqual(
-      ['availability', 'avatarUrl', 'bio', 'blocks', 'categories', 'company', 'contractsCompleted', 'displayName', 'headline', 'hoursLogged', 'links', 'position', 'reviews', 'vetted'].sort(),
+      ['availability', 'avatarUrl', 'bio', 'blocks', 'categories', 'company', 'contractsCompleted', 'displayName', 'headline', 'hoursLogged', 'links', 'location', 'position', 'ratePublic', 'reviews', 'vetted'].sort(),
     )
     // the PII-ish raw identity + account internals must be absent
     for (const leaked of ['firstName', 'lastName', 'clerkUserId', 'isPublic', 'publicSlug', 'contractorIdentityId']) {
@@ -107,6 +109,57 @@ describe('public-field discipline', () => {
   it('does not expose a non-public profile (slug 404s)', async () => {
     const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-bob` })
     expect(pub).toBeNull()
+  })
+})
+
+describe('hire requests (the public hire box)', () => {
+  const anon = ctx(undefined, 'applicant', false) // an anonymous public visitor
+
+  it('an anonymous visitor can request to hire from a PUBLIC profile', async () => {
+    const r = await call(anon).hire.request({ slug: `${RUN}-alice`, fromName: 'Jane Buyer', fromEmail: 'jane@acme.test', message: 'Need a HubSpot migration.', projectType: 'Migration', budget: '$5k' })
+    expect(r).toEqual({ ok: true })
+  })
+
+  it('rejects a request to a NON-public profile (no leaking who exists)', async () => {
+    const r = await call(anon).hire.request({ slug: `${RUN}-bob`, fromName: 'Jane', fromEmail: 'jane@acme.test', message: 'hi' })
+    expect(r).toEqual({ error: 'not_found' })
+  })
+
+  it('validates the payload (bad email rejected at the edge, before any write)', async () => {
+    await expect(call(anon).hire.request({ slug: `${RUN}-alice`, fromName: 'Jane', fromEmail: 'not-an-email', message: 'hi' })).rejects.toThrow()
+  })
+
+  it('the lead lands in the OWNER contractor inbox, with a new-count + bell notification', async () => {
+    const list = await call(ctx(ALICE, 'contractor')).hire.list()
+    const lead = list.find((l) => l.fromEmail === 'jane@acme.test')
+    expect(lead).toBeTruthy()
+    expect(lead!.fromName).toBe('Jane Buyer')
+    expect(lead!.projectType).toBe('Migration')
+    expect(lead!.status).toBe('new')
+    expect(await call(ctx(ALICE, 'contractor')).hire.newCount()).toBeGreaterThanOrEqual(1)
+    const notes = await call(ctx(ALICE, 'contractor')).notifications.list()
+    expect(notes.items.some((n) => n.ceremony === 'hire')).toBe(true)
+  })
+
+  it('another contractor cannot read or handle Alice’s leads', async () => {
+    expect(await call(ctx(BOB, 'contractor')).hire.list()).toHaveLength(0)
+    const lead = (await call(ctx(ALICE, 'contractor')).hire.list())[0]!
+    expect(await call(ctx(BOB, 'contractor')).hire.setStatus({ id: lead.id, status: 'handled' })).toEqual({ error: 'forbidden' })
+  })
+
+  it('the owner marks a lead handled (and can reopen it)', async () => {
+    const lead = (await call(ctx(ALICE, 'contractor')).hire.list())[0]!
+    expect(await call(ctx(ALICE, 'contractor')).hire.setStatus({ id: lead.id, status: 'handled' })).toEqual({ ok: true })
+    const after = (await call(ctx(ALICE, 'contractor')).hire.list()).find((l) => l.id === lead.id)!
+    expect(after.status).toBe('handled')
+    expect(await call(ctx(ALICE, 'contractor')).hire.setStatus({ id: lead.id, status: 'new' })).toEqual({ ok: true })
+  })
+
+  it('rate + location surface on the public profile', async () => {
+    await prisma.contractorProfile.update({ where: { clerkUserId: ALICE }, data: { ratePublic: 150, location: 'Amarillo, TX (CST)' } })
+    const pub = await call(anon).profile.getPublic({ slug: `${RUN}-alice` })
+    expect(pub!.ratePublic).toBe(150)
+    expect(pub!.location).toBe('Amarillo, TX (CST)')
   })
 })
 

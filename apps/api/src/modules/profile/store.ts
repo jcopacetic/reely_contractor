@@ -78,6 +78,8 @@ export async function getOwn(clerkUserId: string) {
       acceptingWork: p.acceptingWork,
       capacityHours: p.capacityHours,
       awayUntil: p.awayUntil ? p.awayUntil.toISOString() : null,
+      ratePublic: p.ratePublic,
+      location: p.location,
       vetted: p.identity.status === 'vetted',
     },
     requiredDocs: REQUIRED_DOCS,
@@ -88,7 +90,7 @@ export async function getOwn(clerkUserId: string) {
 /** Upsert the editable profile fields (basics + links + categories) in one save. Validates categories. */
 export async function update(
   clerkUserId: string,
-  patch: { firstName?: string; lastName?: string; company?: string | null; position?: string | null; displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; blocks?: Block[]; categoryIds?: string[]; publicSlug?: string | null; acceptingWork?: boolean; capacityHours?: number | null; awayUntil?: string | null },
+  patch: { firstName?: string; lastName?: string; company?: string | null; position?: string | null; displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; blocks?: Block[]; categoryIds?: string[]; publicSlug?: string | null; acceptingWork?: boolean; capacityHours?: number | null; awayUntil?: string | null; ratePublic?: number | null; location?: string | null },
 ): Promise<{ ok: true } | { error: string }> {
   const idId = await identityId(clerkUserId)
   if (!idId) return { error: 'no_identity' }
@@ -129,6 +131,8 @@ export async function update(
   if (patch.acceptingWork !== undefined) data.acceptingWork = patch.acceptingWork
   if (patch.capacityHours !== undefined) data.capacityHours = patch.capacityHours && patch.capacityHours > 0 ? Math.min(168, Math.floor(patch.capacityHours)) : null
   if (patch.awayUntil !== undefined) data.awayUntil = patch.awayUntil ? new Date(patch.awayUntil) : null
+  if (patch.ratePublic !== undefined) data.ratePublic = patch.ratePublic && patch.ratePublic > 0 ? Math.min(100000, Math.floor(patch.ratePublic)) : null
+  if (patch.location !== undefined) data.location = patch.location?.trim().slice(0, 120) || null
 
   try {
     await prisma.contractorProfile.upsert({
@@ -242,7 +246,7 @@ export async function listPublicSlugs(): Promise<Array<{ slug: string; updatedAt
 export async function getPublic(slug: string) {
   const p = await prisma.contractorProfile.findFirst({
     where: { publicSlug: slug.toLowerCase(), isPublic: true },
-    select: { clerkUserId: true, displayName: true, company: true, position: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, blocks: true, contractsCompleted: true, hoursLogged: true, acceptingWork: true, capacityHours: true, awayUntil: true, identity: { select: { status: true } } },
+    select: { clerkUserId: true, displayName: true, company: true, position: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, blocks: true, contractsCompleted: true, hoursLogged: true, acceptingWork: true, capacityHours: true, awayUntil: true, ratePublic: true, location: true, identity: { select: { status: true } } },
   })
   if (!p) return null
   const ids = (p.categoryIds as unknown as string[]) ?? []
@@ -265,6 +269,8 @@ export async function getPublic(slug: string) {
     hoursLogged: Number(p.hoursLogged),
     vetted: p.identity.status === 'vetted',
     availability: availabilityStatus({ acceptingWork: p.acceptingWork, capacityHours: p.capacityHours, awayUntil: p.awayUntil }, new Date()),
+    ratePublic: p.ratePublic,
+    location: p.location,
     reviews,
   }
 }

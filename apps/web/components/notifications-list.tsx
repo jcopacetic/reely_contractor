@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Rocket, OctagonAlert, MessageSquareText, GitPullRequestArrow, Compass, Bell, CheckCheck, type LucideIcon } from 'lucide-react'
+import { Rocket, OctagonAlert, MessageSquareText, GitPullRequestArrow, Compass, Inbox, Bell, CheckCheck, type LucideIcon } from 'lucide-react'
 import { markNotificationReadAction, markAllNotificationsReadAction } from '@/app/contractor/actions'
 
 export type Notification = {
@@ -24,6 +24,7 @@ const ICON: Record<string, LucideIcon> = {
   standup: MessageSquareText,
   change_request: GitPullRequestArrow,
   charter: Compass,
+  hire: Inbox,
 }
 
 function ago(s: string): string {
@@ -82,10 +83,11 @@ export function NotificationsList({ initial }: { initial: Notification[] }) {
                 </div>
               </div>
             )
+            const href = n.contractId ? `/contractor/contracts/${n.contractId}` : n.ceremony === 'hire' ? '/contractor/requests' : null
             return (
               <li key={n.id}>
-                {n.contractId ? (
-                  <Link href={`/contractor/contracts/${n.contractId}`} onClick={() => open(n)}>{inner}</Link>
+                {href ? (
+                  <Link href={href} onClick={() => open(n)}>{inner}</Link>
                 ) : (
                   <button type="button" onClick={() => open(n)} className="block w-full text-left">{inner}</button>
                 )}

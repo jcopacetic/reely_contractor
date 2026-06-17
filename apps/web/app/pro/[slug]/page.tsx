@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { BadgeCheck, Briefcase, Clock, ExternalLink, Star } from 'lucide-react'
 import { apiQuery } from '@/lib/api'
 import { JsonLd } from '@/components/json-ld'
+import { HireBox } from './hire-box'
 import { buildMetadata, ogImage, profileLd } from '@/lib/seo'
 import { safeUrl, type Block } from '@/lib/profile-blocks'
 import { DIMENSIONS, kudosMeta, pulseMeta, type Dimensions, type Pulse } from '@/lib/reviews'
@@ -25,6 +26,8 @@ type PublicProfile = {
   hoursLogged: number
   vetted: boolean
   availability: { state: 'available' | 'away' | 'unavailable'; capacityHours: number | null; awayUntil: string | null }
+  ratePublic: number | null
+  location: string | null
   reviews: {
     avg: number
     count: number
@@ -120,6 +123,8 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
           ) })()}
         </div>
       </div>
+
+      <HireBox slug={slug} displayName={p.displayName} ratePublic={p.ratePublic} location={p.location} accepting={p.availability.state === 'available'} />
 
       {(p.contractsCompleted > 0 || p.hoursLogged > 0) && (
         <div className="mt-5 flex justify-center gap-3 text-sm">
