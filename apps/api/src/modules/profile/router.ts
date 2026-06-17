@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { router, vettedProcedure, publicProcedure } from '../../trpc/trpc'
 import * as profile from './store'
+import { listIndustries, searchCompanies } from '../../clients/catalog'
 
 // User-supplied URLs are rendered into the public profile — restrict to http(s) so a `javascript:`/`data:`
 // scheme can't ride into an <a href> (z.url() alone accepts any scheme → stored XSS).
@@ -36,9 +37,15 @@ export const profileRouter = router({
         publicSlug: z.string().max(40).nullish(), // the store trims/lowercases + validates SLUG_RE; empty clears it
         ratePublic: z.number().int().min(0).max(100000).nullish(),
         location: z.string().max(120).nullish(),
+        // catalog-backed facets — store sanitizes (cleanIndustries/cleanTools); kept loose at the edge.
+        industries: z.array(z.object({ slug: z.string().max(80), label: z.string().max(80) })).max(20).optional(),
+        tools: z.array(z.object({ id: z.string().max(64), name: z.string().max(120), slug: z.string().max(120), domain: z.string().max(120).nullish() })).max(30).optional(),
       }),
     )
     .mutation(({ ctx, input }) => profile.update(ctx.clerkUserId, input)),
+  // Catalog consume seam (read-only): the industry taxonomy for the picker + company typeahead for "tools I know".
+  catalogIndustries: vettedProcedure.query(() => listIndustries()),
+  searchCatalogTools: vettedProcedure.input(z.object({ q: z.string().min(1).max(120) })).query(({ input }) => searchCompanies(input.q)),
   setAvailability: vettedProcedure
     .input(z.object({ acceptingWork: z.boolean().optional(), capacityHours: z.number().int().min(0).max(168).nullish(), awayUntil: z.string().datetime().nullish() }))
     .mutation(({ ctx, input }) => profile.setAvailability(ctx.clerkUserId, input)),

@@ -198,6 +198,8 @@ model ContractorProfile {
   headline            String? // public
   bio                 String?  @db.Text // public
   categoryIds         Json     @default("[]") @map("category_ids") // skill_category ids; GIN; filter source; public labels
+  industries          Json     @default("[]") // catalog industry refs [{ slug, label }] — the broad→acute taxonomy behind the catalog browse filter (public)
+  tools               Json     @default("[]") // catalog company refs [{ id, name, slug, domain }] — "tools I know" snapshot (public)
   isPublic            Boolean  @default(false) @map("is_public") // gates the public surface
   publicSlug          String?  @unique @map("public_slug") // shareable URL
   avatarUrl           String?  @map("avatar_url") // R2; public

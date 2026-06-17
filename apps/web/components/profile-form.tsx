@@ -6,9 +6,13 @@ import { Loader2, Check, ExternalLink, Globe } from 'lucide-react'
 import { saveProfileAction, checkSlugAction, setPublicAction, setAvailabilityAction, acceptDocAction, completeOnboardingAction } from '@/app/contractor/actions'
 import { ProfileBlocksEditor } from '@/components/profile-blocks-editor'
 import { AvatarUploader } from '@/components/avatar-uploader'
+import { CatalogToolPicker } from '@/components/catalog-tool-picker'
 import { cleanBlocks, type Block } from '@/lib/profile-blocks'
 
 type Category = { id: string; name: string; slug: string }
+export type IndustryRef = { slug: string; label: string }
+export type IndustryGroup = { slug: string; label: string; acutes: IndustryRef[] }
+export type ToolRef = { id: string; name: string; slug: string; domain: string | null }
 export type ProfileInitial = {
   firstName: string
   lastName: string
@@ -26,6 +30,8 @@ export type ProfileInitial = {
   awayUntil: string | null
   ratePublic: number | null
   location: string | null
+  industries: IndustryRef[]
+  tools: ToolRef[]
   vetted: boolean
 } | null
 
@@ -33,12 +39,14 @@ export type ProfileInitial = {
 export function ProfileForm({
   initial,
   categories,
+  industryTree,
   acceptedDocs,
   requiredDocs,
   mode,
 }: {
   initial: ProfileInitial
   categories: Category[]
+  industryTree: IndustryGroup[]
   acceptedDocs: string[]
   requiredDocs: string[]
   mode: 'onboarding' | 'edit'
@@ -53,6 +61,8 @@ export function ProfileForm({
   const [bio, setBio] = useState(initial?.bio ?? '')
   const [blocks, setBlocks] = useState<Block[]>(initial?.blocks ?? [])
   const [cats, setCats] = useState<Set<string>>(new Set(initial?.categoryIds ?? []))
+  const [industries, setIndustries] = useState<IndustryRef[]>(initial?.industries ?? [])
+  const [tools, setTools] = useState<ToolRef[]>(initial?.tools ?? [])
   const [slug, setSlug] = useState(initial?.publicSlug ?? '')
   const [isPublic, setIsPublic] = useState(initial?.isPublic ?? false)
   const [acceptingWork, setAcceptingWork] = useState(initial?.acceptingWork ?? true)
@@ -65,6 +75,8 @@ export function ProfileForm({
   const [err, setErr] = useState<string | null>(null)
 
   const toggleCat = (id: string) => setCats((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const industrySel = new Set(industries.map((i) => i.slug))
+  const toggleIndustry = (ref: IndustryRef) => setIndustries((xs) => (industrySel.has(ref.slug) ? xs.filter((i) => i.slug !== ref.slug) : xs.length >= 20 ? xs : [...xs, ref]))
 
   function save() {
     setErr(null); setMsg(null)
@@ -81,6 +93,8 @@ export function ProfileForm({
         publicSlug: slug.trim() || null,
         ratePublic: rateValue(ratePublic),
         location: location.trim() || null,
+        industries,
+        tools,
       })
       if (r.error) setErr(r.error === 'slug_taken' ? 'That URL is taken — pick another.' : r.error === 'invalid_slug' ? 'URL: 3–40 lowercase letters, numbers, and dashes.' : r.error)
       else setMsg('Saved.')
@@ -119,6 +133,8 @@ export function ProfileForm({
           publicSlug: slug.trim(),
           ratePublic: rateValue(ratePublic),
           location: location.trim() || null,
+          industries,
+          tools,
         })
         if (saved.error) {
           setErr(saved.error === 'slug_taken' ? 'That URL is taken — pick another.' : saved.error === 'invalid_slug' ? 'URL: 3–40 lowercase letters, numbers, and dashes.' : saved.error)
@@ -244,6 +260,35 @@ export function ProfileForm({
             )
           })}
         </div>
+      </Section>
+
+      <Section title="Industries" hint="The sectors you’ve worked in — drawn from the Reely catalog, so your profile lines up with how clients browse. Pick the ones that fit.">
+        {industryTree.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Industry options are loading from the catalog — check back shortly.</p>
+        ) : (
+          <div className="space-y-3">
+            {industryTree.map((g) => (
+              <div key={g.slug}>
+                <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{g.label}</p>
+                <div className="flex flex-wrap gap-2">
+                  {g.acutes.map((a) => {
+                    const on = industrySel.has(a.slug)
+                    return (
+                      <button key={a.slug} type="button" onClick={() => toggleIndustry(a)} className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition ${on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'}`}>
+                        {on && <Check className="size-3" />} {a.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {industries.length > 0 && <p className="mt-2 text-xs text-muted-foreground">{industries.length} selected{industries.length >= 20 ? ' (max)' : ''}.</p>}
+      </Section>
+
+      <Section title="Tools I know" hint="The software you’re genuinely experienced with — search the Reely catalog and add what you actually use.">
+        <CatalogToolPicker value={tools} onChange={setTools} />
       </Section>
 
       <Section title="Your page" hint="Build your public profile — stack blocks of links, text, images, and lists. Reorder them any way you like.">

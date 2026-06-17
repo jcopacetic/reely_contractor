@@ -7,15 +7,20 @@ export const dynamic = 'force-dynamic'
 
 type Own = {
   profile:
-    | { firstName: string; lastName: string; company: string | null; position: string | null; headline: string | null; bio: string | null; avatarUrl: string | null; blocks: Block[]; categoryIds: string[]; isPublic: boolean; publicSlug: string | null; onboarded: boolean; acceptingWork: boolean; capacityHours: number | null; awayUntil: string | null; ratePublic: number | null; location: string | null; vetted: boolean }
+    | { firstName: string; lastName: string; company: string | null; position: string | null; headline: string | null; bio: string | null; avatarUrl: string | null; blocks: Block[]; categoryIds: string[]; isPublic: boolean; publicSlug: string | null; onboarded: boolean; acceptingWork: boolean; capacityHours: number | null; awayUntil: string | null; ratePublic: number | null; location: string | null; industries: { slug: string; label: string }[]; tools: { id: string; name: string; slug: string; domain: string | null }[]; vetted: boolean }
     | null
   requiredDocs: string[]
   acceptedDocs: string[]
 }
 type Cat = { id: string; name: string; slug: string }
+type IndustryGroup = { slug: string; label: string; acutes: { slug: string; label: string }[] }
 
 export default async function OnboardingPage() {
-  const [own, categories] = await Promise.all([apiQuery<Own>('profile.getOwn'), apiQuery<Cat[]>('profile.listCategories')])
+  const [own, categories, industryTree] = await Promise.all([
+    apiQuery<Own>('profile.getOwn'),
+    apiQuery<Cat[]>('profile.listCategories'),
+    apiQuery<IndustryGroup[]>('profile.catalogIndustries').catch(() => [] as IndustryGroup[]),
+  ])
   if (own.profile?.onboarded) redirect('/contractor')
 
   const initial: ProfileInitial = own.profile
@@ -36,6 +41,8 @@ export default async function OnboardingPage() {
         awayUntil: own.profile.awayUntil,
         ratePublic: own.profile.ratePublic,
         location: own.profile.location,
+        industries: own.profile.industries,
+        tools: own.profile.tools,
         vetted: own.profile.vetted,
       }
     : null
@@ -46,7 +53,7 @@ export default async function OnboardingPage() {
         <h1 className="font-display text-2xl font-bold tracking-tight">Set up your club profile</h1>
         <p className="mt-1 text-sm text-muted-foreground">A few things before you&apos;re in: your public profile, the skills you work in, and the contractor agreement.</p>
       </div>
-      <ProfileForm mode="onboarding" initial={initial} categories={categories} acceptedDocs={own.acceptedDocs} requiredDocs={own.requiredDocs} />
+      <ProfileForm mode="onboarding" initial={initial} categories={categories} industryTree={industryTree} acceptedDocs={own.acceptedDocs} requiredDocs={own.requiredDocs} />
     </main>
   )
 }

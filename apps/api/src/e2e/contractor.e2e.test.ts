@@ -92,7 +92,7 @@ describe('public-field discipline', () => {
     const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })
     expect(pub).toBeTruthy()
     expect(Object.keys(pub!).sort()).toEqual(
-      ['availability', 'avatarUrl', 'bio', 'blocks', 'categories', 'company', 'contractsCompleted', 'displayName', 'headline', 'hoursLogged', 'links', 'location', 'position', 'ratePublic', 'reviews', 'vetted'].sort(),
+      ['availability', 'avatarUrl', 'bio', 'blocks', 'categories', 'company', 'contractsCompleted', 'displayName', 'headline', 'hoursLogged', 'industries', 'links', 'location', 'position', 'ratePublic', 'reviews', 'tools', 'vetted'].sort(),
     )
     // the PII-ish raw identity + account internals must be absent
     for (const leaked of ['firstName', 'lastName', 'clerkUserId', 'isPublic', 'publicSlug', 'contractorIdentityId']) {
@@ -171,6 +171,36 @@ describe('hire requests (the public hire box)', () => {
     const pub = await call(anon).profile.getPublic({ slug: `${RUN}-alice` })
     expect(pub!.ratePublic).toBe(150)
     expect(pub!.location).toBe('Amarillo, TX (CST)')
+  })
+})
+
+describe('catalog facets — industries + tools', () => {
+  it('save sanitizes + persists industries and tools, and they surface publicly', async () => {
+    const r = await call(ctx(ALICE, 'contractor')).profile.update({
+      industries: [
+        { slug: 'fintech', label: 'Fintech' },
+        { slug: 'bad slug', label: 'dropped' }, // invalid slug → dropped by cleanIndustries
+        { slug: 'fintech', label: 'dup' }, // dedup
+      ],
+      tools: [
+        { id: 'org-stripe', name: 'Stripe', slug: 'stripe', domain: 'stripe.com' },
+        { id: '', name: 'NoId', slug: 'x', domain: null }, // dropped
+      ],
+    })
+    expect(r).toEqual({ ok: true })
+
+    const own = await call(ctx(ALICE, 'contractor')).profile.getOwn()
+    expect(own.profile?.industries).toEqual([{ slug: 'fintech', label: 'Fintech' }])
+    expect(own.profile?.tools).toEqual([{ id: 'org-stripe', name: 'Stripe', slug: 'stripe', domain: 'stripe.com' }])
+
+    const pub = await call(ctx(undefined, 'applicant', false)).profile.getPublic({ slug: `${RUN}-alice` })
+    expect(pub!.industries).toEqual([{ slug: 'fintech', label: 'Fintech' }])
+    expect(pub!.tools[0]?.name).toBe('Stripe')
+  })
+
+  it('the catalog client degrades to [] when CATALOG_API_URL is unset (no live catalog in tests)', async () => {
+    expect(await call(ctx(ALICE, 'contractor')).profile.catalogIndustries()).toEqual([])
+    expect(await call(ctx(ALICE, 'contractor')).profile.searchCatalogTools({ q: 'stripe' })).toEqual([])
   })
 })
 

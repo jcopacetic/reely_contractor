@@ -8,15 +8,20 @@ export const dynamic = 'force-dynamic'
 
 type Own = {
   profile:
-    | { firstName: string; lastName: string; company: string | null; position: string | null; headline: string | null; bio: string | null; avatarUrl: string | null; blocks: Block[]; categoryIds: string[]; isPublic: boolean; publicSlug: string | null; onboarded: boolean; acceptingWork: boolean; capacityHours: number | null; awayUntil: string | null; ratePublic: number | null; location: string | null; vetted: boolean }
+    | { firstName: string; lastName: string; company: string | null; position: string | null; headline: string | null; bio: string | null; avatarUrl: string | null; blocks: Block[]; categoryIds: string[]; isPublic: boolean; publicSlug: string | null; onboarded: boolean; acceptingWork: boolean; capacityHours: number | null; awayUntil: string | null; ratePublic: number | null; location: string | null; industries: { slug: string; label: string }[]; tools: { id: string; name: string; slug: string; domain: string | null }[]; vetted: boolean }
     | null
   requiredDocs: string[]
   acceptedDocs: string[]
 }
 type Cat = { id: string; name: string; slug: string }
+type IndustryGroup = { slug: string; label: string; acutes: { slug: string; label: string }[] }
 
 export default async function ProfileEditorPage() {
-  const [own, categories] = await Promise.all([apiQuery<Own>('profile.getOwn'), apiQuery<Cat[]>('profile.listCategories')])
+  const [own, categories, industryTree] = await Promise.all([
+    apiQuery<Own>('profile.getOwn'),
+    apiQuery<Cat[]>('profile.listCategories'),
+    apiQuery<IndustryGroup[]>('profile.catalogIndustries').catch(() => [] as IndustryGroup[]),
+  ])
 
   const initial: ProfileInitial = own.profile
     ? {
@@ -36,6 +41,8 @@ export default async function ProfileEditorPage() {
         awayUntil: own.profile.awayUntil,
         ratePublic: own.profile.ratePublic,
         location: own.profile.location,
+        industries: own.profile.industries,
+        tools: own.profile.tools,
         vetted: own.profile.vetted,
       }
     : null
@@ -47,7 +54,7 @@ export default async function ProfileEditorPage() {
         <h1 className="font-display text-2xl font-bold tracking-tight">Edit profile</h1>
         <Link href="/contractor/extension" className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">Timer extension</Link>
       </div>
-      <ProfileForm mode="edit" initial={initial} categories={categories} acceptedDocs={own.acceptedDocs} requiredDocs={own.requiredDocs} />
+      <ProfileForm mode="edit" initial={initial} categories={categories} industryTree={industryTree} acceptedDocs={own.acceptedDocs} requiredDocs={own.requiredDocs} />
     </main>
   )
 }

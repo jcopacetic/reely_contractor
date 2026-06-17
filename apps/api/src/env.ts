@@ -22,6 +22,11 @@ const EnvSchema = z.object({
   // x-contractor-service-key. Unset locally → no caller admitted as a service caller (closed by default).
   CONTRACTOR_SERVICE_KEY: z.string().optional(),
 
+  // Catalog consume seam (READ-ONLY): the industry taxonomy + company search for profile tagging. Unset →
+  // the catalog client returns [] and the pickers degrade. CATALOG_SERVICE_KEY = the portfolio service key.
+  CATALOG_API_URL: z.string().optional(),
+  CATALOG_SERVICE_KEY: z.string().optional(),
+
   SUPABASE_URL: z.string().optional(),
   SUPABASE_SERVICE_KEY: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),

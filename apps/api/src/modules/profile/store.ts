@@ -47,6 +47,48 @@ export function availabilityStatus(p: AvailabilityInput, now: Date): Availabilit
   return { state: 'available', capacityHours: p.capacityHours && p.capacityHours > 0 ? p.capacityHours : null, awayUntil: null }
 }
 
+export type IndustryRef = { slug: string; label: string }
+export type ToolRef = { id: string; name: string; slug: string; domain: string | null }
+
+const INDUSTRY_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/** PURE sanitize of catalog industry refs from the client: shape + slug pattern + dedupe + cap. Unit-tested. */
+export function cleanIndustries(input: unknown): IndustryRef[] {
+  if (!Array.isArray(input)) return []
+  const out: IndustryRef[] = []
+  const seen = new Set<string>()
+  for (const x of input) {
+    if (!x || typeof x !== 'object') continue
+    const slug = String((x as { slug?: unknown }).slug ?? '').trim().toLowerCase()
+    const label = String((x as { label?: unknown }).label ?? '').trim().slice(0, 80)
+    if (slug.length > 80 || !INDUSTRY_SLUG.test(slug) || !label || seen.has(slug)) continue
+    seen.add(slug)
+    out.push({ slug, label })
+    if (out.length >= 20) break
+  }
+  return out
+}
+
+/** PURE sanitize of catalog company ("tool") refs: non-empty id + name, optional slug/domain, dedupe + cap. */
+export function cleanTools(input: unknown): ToolRef[] {
+  if (!Array.isArray(input)) return []
+  const out: ToolRef[] = []
+  const seen = new Set<string>()
+  for (const x of input) {
+    if (!x || typeof x !== 'object') continue
+    const id = String((x as { id?: unknown }).id ?? '').trim().slice(0, 64)
+    const name = String((x as { name?: unknown }).name ?? '').trim().slice(0, 120)
+    const slug = String((x as { slug?: unknown }).slug ?? '').trim().slice(0, 120)
+    const d = (x as { domain?: unknown }).domain
+    const domain = typeof d === 'string' && d.trim() ? d.trim().slice(0, 120) : null
+    if (!id || !name || seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, name, slug, domain })
+    if (out.length >= 30) break
+  }
+  return out
+}
+
 async function identityId(clerkUserId: string): Promise<string | null> {
   const i = await prisma.contractorIdentity.findUnique({ where: { clerkUserId }, select: { id: true } })
   return i?.id ?? null
@@ -81,6 +123,8 @@ export async function getOwn(clerkUserId: string) {
       ratePublic: p.ratePublic,
       location: p.location,
       searchable: p.searchable,
+      industries: (p.industries as unknown as IndustryRef[]) ?? [],
+      tools: (p.tools as unknown as ToolRef[]) ?? [],
       vetted: p.identity.status === 'vetted',
     },
     requiredDocs: REQUIRED_DOCS,
@@ -91,7 +135,7 @@ export async function getOwn(clerkUserId: string) {
 /** Upsert the editable profile fields (basics + links + categories) in one save. Validates categories. */
 export async function update(
   clerkUserId: string,
-  patch: { firstName?: string; lastName?: string; company?: string | null; position?: string | null; displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; blocks?: Block[]; categoryIds?: string[]; publicSlug?: string | null; acceptingWork?: boolean; capacityHours?: number | null; awayUntil?: string | null; ratePublic?: number | null; location?: string | null },
+  patch: { firstName?: string; lastName?: string; company?: string | null; position?: string | null; displayName?: string; headline?: string | null; bio?: string | null; avatarUrl?: string | null; links?: Link[]; blocks?: Block[]; categoryIds?: string[]; publicSlug?: string | null; acceptingWork?: boolean; capacityHours?: number | null; awayUntil?: string | null; ratePublic?: number | null; location?: string | null; industries?: unknown; tools?: unknown },
 ): Promise<{ ok: true } | { error: string }> {
   const idId = await identityId(clerkUserId)
   if (!idId) return { error: 'no_identity' }
@@ -134,6 +178,8 @@ export async function update(
   if (patch.awayUntil !== undefined) data.awayUntil = patch.awayUntil ? new Date(patch.awayUntil) : null
   if (patch.ratePublic !== undefined) data.ratePublic = patch.ratePublic && patch.ratePublic > 0 ? Math.min(100000, Math.floor(patch.ratePublic)) : null
   if (patch.location !== undefined) data.location = patch.location?.trim().slice(0, 120) || null
+  if (patch.industries !== undefined) data.industries = cleanIndustries(patch.industries) as unknown as Prisma.InputJsonValue
+  if (patch.tools !== undefined) data.tools = cleanTools(patch.tools) as unknown as Prisma.InputJsonValue
 
   try {
     await prisma.contractorProfile.upsert({
@@ -269,7 +315,7 @@ export async function listPublicSlugs(): Promise<Array<{ slug: string; updatedAt
 export async function getPublic(slug: string) {
   const p = await prisma.contractorProfile.findFirst({
     where: { publicSlug: slug.toLowerCase(), isPublic: true },
-    select: { clerkUserId: true, displayName: true, company: true, position: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, blocks: true, contractsCompleted: true, hoursLogged: true, acceptingWork: true, capacityHours: true, awayUntil: true, ratePublic: true, location: true, identity: { select: { status: true } } },
+    select: { clerkUserId: true, displayName: true, company: true, position: true, headline: true, bio: true, categoryIds: true, avatarUrl: true, links: true, blocks: true, contractsCompleted: true, hoursLogged: true, acceptingWork: true, capacityHours: true, awayUntil: true, ratePublic: true, location: true, industries: true, tools: true, identity: { select: { status: true } } },
   })
   if (!p) return null
   const ids = (p.categoryIds as unknown as string[]) ?? []
@@ -294,6 +340,8 @@ export async function getPublic(slug: string) {
     availability: availabilityStatus({ acceptingWork: p.acceptingWork, capacityHours: p.capacityHours, awayUntil: p.awayUntil }, new Date()),
     ratePublic: p.ratePublic,
     location: p.location,
+    industries: cleanIndustries(p.industries),
+    tools: cleanTools(p.tools),
     reviews,
   }
 }

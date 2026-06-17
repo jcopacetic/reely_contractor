@@ -28,6 +28,8 @@ type PublicProfile = {
   availability: { state: 'available' | 'away' | 'unavailable'; capacityHours: number | null; awayUntil: string | null }
   ratePublic: number | null
   location: string | null
+  industries: { slug: string; label: string }[]
+  tools: { id: string; name: string; slug: string; domain: string | null }[]
   reviews: {
     avg: number
     count: number
@@ -138,6 +140,35 @@ export default async function PublicProfilePage({ params }: { params: Promise<{ 
       {p.categories.length > 0 && (
         <div className="mt-5 flex flex-wrap justify-center gap-1.5">
           {p.categories.map((c) => <span key={c} className="rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground">{c}</span>)}
+        </div>
+      )}
+
+      {/* Industries — the catalog taxonomy; each chip links to that sector on the catalog browse filter. */}
+      {p.industries.length > 0 && (
+        <div className="mt-4">
+          <p className="mb-1.5 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Industries</p>
+          <div className="flex flex-wrap justify-center gap-1.5">
+            {p.industries.map((i) => (
+              <a key={i.slug} href={`/browse?industry=${encodeURIComponent(i.slug)}`} className="rounded-full bg-primary/5 px-2.5 py-0.5 text-xs text-primary/90 ring-1 ring-primary/15 transition hover:bg-primary/10">{i.label}</a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tools they know — catalog companies, with favicons; link out to each tool's site. */}
+      {p.tools.length > 0 && (
+        <div className="mt-4">
+          <p className="mb-1.5 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Tools I know</p>
+          <div className="flex flex-wrap justify-center gap-1.5">
+            {p.tools.map((t) => {
+              const fav = t.domain ? `https://www.google.com/s2/favicons?sz=64&domain=${encodeURIComponent(t.domain)}` : null
+              const inner = (<>{fav ? <img src={fav} alt="" className="size-3.5 rounded-sm" /> : null}{t.name}</>)
+              const cls = 'inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-0.5 text-xs'
+              return t.domain
+                ? <a key={t.id} href={`https://${t.domain}`} target="_blank" rel="noopener noreferrer" className={`${cls} hover:bg-muted`}>{inner}</a>
+                : <span key={t.id} className={cls}>{inner}</span>
+            })}
+          </div>
         </div>
       )}
 

@@ -99,6 +99,8 @@ export async function saveProfileAction(input: {
   publicSlug?: string | null
   ratePublic?: number | null
   location?: string | null
+  industries?: { slug: string; label: string }[]
+  tools?: { id: string; name: string; slug: string; domain: string | null }[]
 }): Promise<Result> {
   try {
     const r = await apiMutate<Result>('profile.update', input)
@@ -106,6 +108,17 @@ export async function saveProfileAction(input: {
     return r
   } catch (e) {
     return { error: (e as Error).message }
+  }
+}
+
+export type CatalogTool = { id: string; name: string; slug: string; domain: string | null }
+
+/** Typeahead for the "tools I know" picker — proxies the catalog company search. [] on failure/unset. */
+export async function searchCatalogToolsAction(q: string): Promise<CatalogTool[]> {
+  try {
+    return await apiQuery<CatalogTool[]>('profile.searchCatalogTools', { q })
+  } catch {
+    return []
   }
 }
 
