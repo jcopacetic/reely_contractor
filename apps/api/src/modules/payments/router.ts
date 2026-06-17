@@ -3,6 +3,7 @@ import { router, vettedProcedure, adminProcedure, serviceProcedure } from '../..
 import { enqueue } from '../../queue'
 import * as payments from './store'
 import * as ledger from './ledger'
+import * as dashboard from './dashboard'
 
 /** Board provider surface — a Board-originated contract's billing cycles (what the client will be billed).
  *  Service-key + boardRef-scoped (never an unscoped collection). Read-only; charges stay platform-initiated. */
@@ -19,6 +20,8 @@ const providerRouter = router({
   billingStatus: serviceProcedure.input(z.object({ clientUserId: z.string().min(1) })).query(({ input }) => payments.clientBillingStatus(input.clientUserId)),
   // The client's immutable transaction record for a contract (boardRef-scoped).
   ledger: serviceProcedure.input(z.object({ contractRef: z.string().uuid() })).query(({ input }) => ledger.providerLedgerForContract(input.contractRef)),
+  // The client's weekly billing dashboard across the workspace's contracts (each boardRef-scoped).
+  dashboard: serviceProcedure.input(z.object({ contractRefs: z.array(z.string().uuid()).max(200) })).query(({ input }) => dashboard.providerBillingDashboard(input.contractRefs)),
 })
 
 /** payments tRPC surface — the contractor's Connect onboarding + a contract's billing cycles + cycle disputes.
@@ -31,6 +34,8 @@ export const paymentsRouter = router({
   cycles: vettedProcedure.input(z.object({ contractId: z.string().uuid() })).query(({ ctx, input }) => payments.listCycles(ctx.clerkUserId, input.contractId)),
   // the contractor's own immutable transaction record (what they've earned across contracts)
   ledger: vettedProcedure.query(({ ctx }) => ledger.ledgerForContractor(ctx.clerkUserId)),
+  // the contractor's weekly billing dashboard (in progress / in review / paid, by week)
+  dashboard: vettedProcedure.query(({ ctx }) => dashboard.contractorBillingDashboard(ctx.clerkUserId)),
   // a participant contests a cycle (blocks its charge until an admin resolves)
   raiseDispute: vettedProcedure.input(z.object({ billingCycleId: z.string().uuid(), reason: z.string().min(1).max(2000) })).mutation(({ ctx, input }) => payments.raiseCycleDispute(ctx.clerkUserId, input.billingCycleId, input.reason)),
   // admin resolution
