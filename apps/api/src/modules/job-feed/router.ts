@@ -16,5 +16,6 @@ export const jobFeedRouter = router({
     )
     .query(({ ctx, input }) => feed.listListings(ctx.clerkUserId, input ?? {})),
   get: vettedProcedure.input(z.object({ listingId: z.string().uuid() })).query(({ ctx, input }) => feed.getFeedListing(ctx.clerkUserId, input.listingId)),
+  invited: vettedProcedure.query(({ ctx }) => feed.invitedListings(ctx.clerkUserId)),
   myCategories: vettedProcedure.query(({ ctx }) => feed.viewerCategories(ctx.clerkUserId)),
 })

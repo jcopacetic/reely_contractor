@@ -29,6 +29,7 @@ export type ListingView = {
   createdAt: string
   bidCount: number
   isOwner: boolean
+  invited: boolean
 }
 export type BidView = {
   id: string
@@ -51,7 +52,7 @@ export async function bidCounts(listingIds: string[]): Promise<Map<string, numbe
   return new Map(groups.map((g) => [g.listingId, g._count._all]))
 }
 
-export function toListingView(l: { id: string; ownerUserId: string; boardPartRef: string | null; title: string; description: string; categoryIds: string[]; budgetType: string; budgetAmount: unknown; status: string; createdAt: Date }, viewerUserId: string, bidCount: number): ListingView {
+export function toListingView(l: { id: string; ownerUserId: string; boardPartRef: string | null; title: string; description: string; categoryIds: string[]; invitedUserIds?: string[]; budgetType: string; budgetAmount: unknown; status: string; createdAt: Date }, viewerUserId: string, bidCount: number): ListingView {
   return {
     id: l.id,
     ownerUserId: l.ownerUserId,
@@ -65,6 +66,7 @@ export function toListingView(l: { id: string; ownerUserId: string; boardPartRef
     createdAt: l.createdAt.toISOString(),
     bidCount,
     isOwner: l.ownerUserId === viewerUserId,
+    invited: (l.invitedUserIds ?? []).includes(viewerUserId),
   }
 }
 

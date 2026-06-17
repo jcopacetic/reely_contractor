@@ -97,6 +97,7 @@ describe('toListingView — DB listing to view + isOwner flag', () => {
       createdAt: FIXED_ISO,
       bidCount: 7,
       isOwner: false,
+      invited: false,
     })
   })
 
@@ -108,6 +109,12 @@ describe('toListingView — DB listing to view + isOwner flag', () => {
   it('sets isOwner=false when viewer differs from owner', () => {
     const v = toListingView(baseRow(), 'someone_else', 0)
     expect(v.isOwner).toBe(false)
+  })
+
+  it('invited reflects whether the viewer is in invitedUserIds', () => {
+    expect(toListingView({ ...baseRow(), invitedUserIds: ['user_a', 'viewer_x'] }, 'viewer_x', 0).invited).toBe(true)
+    expect(toListingView({ ...baseRow(), invitedUserIds: ['user_a'] }, 'viewer_x', 0).invited).toBe(false)
+    expect(toListingView(baseRow(), 'viewer_x', 0).invited).toBe(false) // absent → not invited
   })
 
   it('isOwner is a strict match (no coercion, empty viewer never owns)', () => {

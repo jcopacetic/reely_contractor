@@ -39,6 +39,18 @@ export async function listListings(viewerUserId: string, opts: FeedFilters = {})
   return rows.map((r) => toListingView(r, viewerUserId, counts.get(r.id) ?? 0))
 }
 
+/** Listings the viewer was DIRECTLY invited to (open), newest-first — surfaced as a top "Invited to you" section
+ *  so a targeted invite isn't lost among the open feed (they were also notified). Each carries invited: true. */
+export async function invitedListings(viewerUserId: string): Promise<ListingView[]> {
+  const rows = await prisma.listing.findMany({
+    where: { status: 'open', deletedAt: null, invitedUserIds: { has: viewerUserId } },
+    orderBy: { createdAt: 'desc' },
+    take: FEED_PAGE_SIZE,
+  })
+  const counts = await bidCounts(rows.map((r) => r.id))
+  return rows.map((r) => toListingView(r, viewerUserId, counts.get(r.id) ?? 0))
+}
+
 /** One open listing's detail + whether the viewer already has an active bid on it. Null on closed/filled/missing. */
 export async function getFeedListing(viewerUserId: string, listingId: string): Promise<{ listing: ListingView; myBid: { id: string; status: string } | null } | null> {
   const l = await prisma.listing.findFirst({ where: { id: listingId, deletedAt: null } })

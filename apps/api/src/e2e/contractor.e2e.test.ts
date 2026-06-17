@@ -280,6 +280,12 @@ describe('targeted invites (provider createListing records + notifies up to 3)',
     expect(listing?.invitedUserIds).toContain(ALICE)
     const notes = await call(ctx(ALICE, 'contractor')).notifications.list()
     expect(notes.items.some((n) => n.ceremony === 'invite' && n.listingId === r.listingRef)).toBe(true)
+    // and it surfaces in the invitee's "Invited to you" feed, flagged
+    const inv = await call(ctx(ALICE, 'contractor')).jobFeed.invited()
+    const mine = inv.find((l) => l.id === r.listingRef)
+    expect(mine?.invited).toBe(true)
+    // a non-invited contractor doesn't see it as invited
+    expect((await call(ctx(BOB, 'contractor')).jobFeed.invited()).some((l) => l.id === r.listingRef)).toBe(false)
   })
 })
 
