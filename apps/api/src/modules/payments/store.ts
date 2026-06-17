@@ -10,6 +10,7 @@ import { emit } from '../../events'
 import { env } from '../../env'
 import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured, createCustomer, createSetupIntent, createSetupCheckout, attachDefaultPaymentMethod, dashboardLoginLink } from '../../clients/stripe'
 import { recordLedger } from './ledger'
+import { billableSeconds, pausedIntervalsForContract } from './paused'
 import { autoSuspendClientOnDecline } from '../governance/store'
 import { notifyDisputeOpened, notifyDisputeResolved } from './disputes'
 
@@ -66,8 +67,11 @@ export async function sweepCycle(contractId: string, periodStart: Date, periodEn
   // client always gets the full 7 days to contest before the charge, regardless of when in the week we swept.
   const cycle = existing ?? (await prisma.billingCycle.create({ data: { contractId, periodStart, periodEnd, status: 'dispute_window', disputeWindowEndsAt: new Date(periodEnd.getTime() + DISPUTE_WINDOW_DAYS * 86_400_000) }, select: { id: true, status: true } }))
   if (unbilled.length) await prisma.timeEntry.updateMany({ where: { id: { in: unbilled.map((e) => e.id) } }, data: { billingCycleId: cycle.id } })
-  const agg = await prisma.timeEntry.aggregate({ where: { billingCycleId: cycle.id }, _sum: { durationSeconds: true } })
-  const totalSeconds = agg._sum.durationSeconds ?? 0
+  // Bill only un-paused time: while a blocker was open the clock was paused, so any portion of an entry that
+  // fell inside a blocker's [raised, resolved] window is excluded from the billable total.
+  const cycleEntries = await prisma.timeEntry.findMany({ where: { billingCycleId: cycle.id }, select: { startedAt: true, durationSeconds: true } })
+  const paused = await pausedIntervalsForContract(contractId, periodEnd)
+  const totalSeconds = cycleEntries.reduce((n, e) => n + billableSeconds(e, paused), 0)
   const rate = Number(contract.rateAmount)
   const totalAmount = round2(contract.rateType === 'hourly' ? (totalSeconds / 3600) * rate : rate)
   await prisma.billingCycle.update({ where: { id: cycle.id }, data: { totalSeconds, totalAmount, takeRateAmount: round2((totalAmount * env.PLATFORM_TAKE_RATE_PCT) / 100) } })

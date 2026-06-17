@@ -231,6 +231,25 @@ describe('disputes — admin queue + waive records an adjustment', () => {
   })
 })
 
+describe('paused-interval exclusion — open-blocker time is not billed', () => {
+  let contractId: string
+  beforeAll(async () => {
+    contractId = (await mkContract({ title: 'Blocked work', rateAmount: 100 })).id
+    // one billable hour [18:00, 19:00] on an hourly contract
+    await prisma.timeEntry.create({ data: { contractId, contractorUserId: WORKER, startedAt: P_START, endedAt: new Date(P_START.getTime() + 3600_000), durationSeconds: 3600, source: 'timer', approved: true, approvedAt: new Date() } })
+    // a blocker open from 18:15 to 18:45 — 30 minutes of that hour were paused
+    await prisma.blocker.create({ data: { contractId, status: 'resolved', reason: 'waiting on client creds', raisedByRole: 'contractor', raisedByUserId: WORKER, createdAt: new Date(P_START.getTime() + 15 * 60_000), resolvedAt: new Date(P_START.getTime() + 45 * 60_000) } })
+  })
+
+  it('sweep bills only the un-paused 30 minutes', async () => {
+    const r = (await sweepCycle(contractId, P_START, P_END))!
+    expect(r.totalSeconds).toBe(1800) // 3600 − 1800 paused
+    const cy = await prisma.billingCycle.findUniqueOrThrow({ where: { id: r.cycleId } })
+    expect(cy.totalSeconds).toBe(1800)
+    expect(Number(cy.totalAmount)).toBe(50) // 0.5h × $100
+  })
+})
+
 describe('billing dashboard — the current week is the in-progress accrual', () => {
   let contractId: string
   beforeAll(async () => {
