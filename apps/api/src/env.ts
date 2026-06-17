@@ -26,7 +26,7 @@ const EnvSchema = z.object({
   SUPABASE_SERVICE_KEY: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
   // Notification digest email: the from/reply addresses + a stable secret for one-click unsubscribe HMAC tokens.
-  NOTIFICATIONS_FROM: z.string().default('Reely <notifications@reely.io>'),
+  NOTIFICATIONS_FROM: z.string().default('Reely <no_reply@reely.io>'),
   NOTIFICATIONS_REPLY_TO: z.string().optional(),
   NOTIFICATIONS_UNSUB_SECRET: z.string().optional(),
   R2_ACCOUNT_ID: z.string().optional(),
