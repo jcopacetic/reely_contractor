@@ -117,12 +117,9 @@ export function TimePanel({ contractId, role, rateType, rateAmount, active, init
               <button onClick={() => run(() => startTimerAction(contractId))} disabled={pending || !active} title={active ? 'Start the timer' : 'Contract is not active'} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
                 {pending ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />} Start timer
               </button>
-              <button onClick={() => setManualOpen((o) => !o)} disabled={!active} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-sm hover:bg-muted disabled:opacity-50">
-                <Plus className="size-4" /> Manual entry
-              </button>
+              <span className="text-xs text-muted-foreground">The timer is the only way to log time. If something&apos;s off, ask the client to add or correct it.</span>
             </div>
           )}
-          {manualOpen && !running && <ManualEntry contractId={contractId} onDone={() => { setManualOpen(false); router.refresh() }} onError={setErr} />}
         </div>
       )}
 

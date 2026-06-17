@@ -38,6 +38,18 @@ export function timerStartGuard(
   return null
 }
 
+/** Validate a manual time span (pure): parse the ISO ends, enforce order + the min/max duration bounds. */
+export function validateTimeSpan(startedAtISO: string, endedAtISO: string): { startedAt: Date; endedAt: Date; durationSeconds: number } | { error: string } {
+  const startedAt = new Date(startedAtISO)
+  const endedAt = new Date(endedAtISO)
+  if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())) return { error: 'bad_dates' }
+  if (endedAt <= startedAt) return { error: 'end_before_start' }
+  const durationSeconds = Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)
+  if (durationSeconds < MIN_ENTRY_SECONDS) return { error: 'too_short' }
+  if (durationSeconds > MAX_RUNNING_SECONDS) return { error: 'too_long' }
+  return { startedAt, endedAt, durationSeconds }
+}
+
 type TimeSource = 'timer' | 'extension' | 'manual'
 
 export type TimeEntryView = {
@@ -153,19 +165,47 @@ export async function manualEntry(
   if (blocked) return { error: blocked }
   // Timer integrity: by-hand time is blocked at launch (the timer/extension is the only trusted source).
   if ((input.source ?? 'manual') === 'manual' && !env.ALLOW_MANUAL_TIME) return { error: 'manual_entry_disabled' }
-  const startedAt = new Date(input.startedAt)
-  const endedAt = new Date(input.endedAt)
-  if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime())) return { error: 'bad_dates' }
-  if (endedAt <= startedAt) return { error: 'end_before_start' }
-  const durationSeconds = Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000)
-  if (durationSeconds < MIN_ENTRY_SECONDS) return { error: 'too_short' }
-  if (durationSeconds > MAX_RUNNING_SECONDS) return { error: 'too_long' }
+  const span = validateTimeSpan(input.startedAt, input.endedAt)
+  if ('error' in span) return span
   const e = await prisma.timeEntry.create({
-    data: { contractId, contractorUserId, startedAt, endedAt, durationSeconds, source: (input.source ?? 'manual') as never, description: input.description?.trim() || null },
+    data: { contractId, contractorUserId, startedAt: span.startedAt, endedAt: span.endedAt, durationSeconds: span.durationSeconds, source: (input.source ?? 'manual') as never, description: input.description?.trim() || null },
     select: { id: true },
   })
   await emit('time', 'time_entry.created', contractorUserId, { contractId, entryId: e.id, source: input.source ?? 'manual' }, 'contractor')
   return { entryId: e.id }
+}
+
+/** The CLIENT (the payer) adds time on the contract — the correction path, since contractors can't add by hand.
+ *  Auto-approved (the client vouches for what they add → it bills). Only the contract's client; admins via the
+ *  admin path. `actorRole` is the audit attribution. */
+export async function addTimeByClient(viewerUserId: string, contractId: string, input: { startedAt: string; endedAt: string; description?: string | null }): Promise<{ entryId: string } | { error: string }> {
+  const c = await contractParties(contractId)
+  if (!c) return { error: 'contract_not_found' }
+  if (c.clientUserId !== viewerUserId) return { error: 'forbidden' } // ONLY the client adds (the payer vouches)
+  if (c.status !== 'active') return { error: 'contract_not_active' }
+  return addTimeForContractor(c.contractorUserId, contractId, input, viewerUserId)
+}
+
+/** Shared add-time writer — creates an auto-approved manual entry for the contractor (the client/Board vouches). */
+async function addTimeForContractor(contractorUserId: string, contractId: string, input: { startedAt: string; endedAt: string; description?: string | null }, actorId: string): Promise<{ entryId: string } | { error: string }> {
+  const span = validateTimeSpan(input.startedAt, input.endedAt)
+  if ('error' in span) return span
+  const now = new Date()
+  const e = await prisma.timeEntry.create({
+    data: { contractId, contractorUserId, startedAt: span.startedAt, endedAt: span.endedAt, durationSeconds: span.durationSeconds, source: 'manual' as never, description: input.description?.trim() || null, approved: true, approvedAt: now },
+    select: { id: true },
+  })
+  await emit('time', 'time_entry.client_added', actorId, { contractId, entryId: e.id }, 'client')
+  return { entryId: e.id }
+}
+
+/** Board-client add-time (boardRef-scoped). Same auto-approved correction path. */
+export async function providerAddTime(contractRef: string, input: { startedAt: string; endedAt: string; description?: string | null }): Promise<{ entryId: string } | { error: string }> {
+  const c = await prisma.contract.findUnique({ where: { id: contractRef }, select: { boardRef: true, contractorUserId: true, status: true } })
+  if (!c) return { error: 'not_found' }
+  if (!c.boardRef) return { error: 'forbidden' }
+  if (c.status !== 'active') return { error: 'contract_not_active' }
+  return addTimeForContractor(c.contractorUserId, contractRef, input, 'system')
 }
 
 // ── reads (participant-scoped) ──────────────────────────────────────────────────────
@@ -263,10 +303,12 @@ export async function withdrawDispute(clientUserId: string, entryId: string): Pr
  * Delete a tracked entry — the contractor (owner) only, and only while un-billed. Serves both "remove time I
  * logged" and conceding a dispute (the contractor agrees and drops the entry). A billed entry is immutable.
  */
-export async function deleteEntry(contractorUserId: string, entryId: string): Promise<{ ok: true } | { error: string }> {
+/** Delete an un-billed time entry. Only the OWNER contractor (or an admin via `isAdmin`) — clients can never
+ *  delete time (they add it instead). A billed entry is permanent. */
+export async function deleteEntry(viewerUserId: string, entryId: string, isAdmin = false): Promise<{ ok: true } | { error: string }> {
   const e = await prisma.timeEntry.findUnique({ where: { id: entryId }, select: { contractorUserId: true, billingCycleId: true } })
   if (!e) return { error: 'not_found' }
-  if (e.contractorUserId !== contractorUserId) return { error: 'forbidden' }
+  if (!isAdmin && e.contractorUserId !== viewerUserId) return { error: 'forbidden' }
   if (e.billingCycleId) return { error: 'already_billed' }
   await prisma.timeEntry.delete({ where: { id: entryId } })
   return { ok: true }

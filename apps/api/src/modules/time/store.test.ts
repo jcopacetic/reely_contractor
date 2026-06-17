@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bucketSummary, toView, timerStartGuard, type TimeEntryView } from './store'
+import { bucketSummary, toView, timerStartGuard, validateTimeSpan, type TimeEntryView } from './store'
 
 /**
  * UNIT tests for the pure logic in store.ts — no DB. We test:
@@ -295,5 +295,32 @@ describe('timerStartGuard — one individual, ≤2 tasks, one client', () => {
   })
   it('respects a custom cap', () => {
     expect(timerStartGuard([{ contractId: 'cA', clientUserId: 'client1' }], t, 1)).toBe('max_concurrent_timers')
+  })
+})
+
+describe('validateTimeSpan — manual span bounds', () => {
+  const A = '2026-05-10T09:00:00.000Z'
+  it('accepts a valid span and computes duration', () => {
+    const r = validateTimeSpan(A, '2026-05-10T11:00:00.000Z')
+    expect('error' in r).toBe(false)
+    if (!('error' in r)) expect(r.durationSeconds).toBe(7200)
+  })
+  it('rejects bad dates', () => {
+    expect(validateTimeSpan('not-a-date', A)).toEqual({ error: 'bad_dates' })
+  })
+  it('rejects end <= start', () => {
+    expect(validateTimeSpan(A, A)).toEqual({ error: 'end_before_start' })
+    expect(validateTimeSpan('2026-05-10T11:00:00.000Z', A)).toEqual({ error: 'end_before_start' })
+  })
+  it('rejects too-short (< 60s) and accepts exactly 60s', () => {
+    expect(validateTimeSpan(A, '2026-05-10T09:00:30.000Z')).toEqual({ error: 'too_short' })
+    const ok = validateTimeSpan(A, '2026-05-10T09:01:00.000Z')
+    expect('error' in ok).toBe(false)
+  })
+  it('rejects too-long (> 12h) and accepts exactly 12h', () => {
+    expect(validateTimeSpan(A, '2026-05-10T21:00:01.000Z')).toEqual({ error: 'too_long' })
+    const ok = validateTimeSpan(A, '2026-05-10T21:00:00.000Z')
+    expect('error' in ok).toBe(false)
+    if (!('error' in ok)) expect(ok.durationSeconds).toBe(12 * 3600)
   })
 })
