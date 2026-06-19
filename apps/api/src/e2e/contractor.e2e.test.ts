@@ -3,6 +3,8 @@ import { prisma } from '@contractor/db'
 import { appRouter } from '../trpc/router'
 import type { ApiContext, ActorRole } from '../trpc/trpc'
 import { sweepCycle, chargeDueCycles, listCycles, raiseCycleDispute, startOnboarding, myPayoutAccount, providerListCycles } from '../modules/payments/store'
+import { createListing, submitBid, acceptBid } from '../modules/marketplace/store'
+import { approve } from '../modules/contractor-identity/store'
 
 /**
  * DB-backed security e2e — the contractor node's "definition of done" invariants against real Postgres,
@@ -591,6 +593,9 @@ describe('payments — billing engine', () => {
     const payout = await prisma.payout.findUniqueOrThrow({ where: { chargeId: charge.id } })
     expect(payout.status).toBe('paid')
     expect((await prisma.billingCycle.findUniqueOrThrow({ where: { id: cycleId } })).status).toBe('charged')
+    // P0 money-in notification: the contractor is told they were paid (in-app row; email stubbed in tests).
+    const paid = await prisma.notification.findFirst({ where: { userId: BOB, type: 'payment.received' } })
+    expect(paid).toBeTruthy()
   })
 
   it('does not re-charge an already-charged cycle', async () => {
@@ -683,5 +688,30 @@ describe('reviews — client reviews of the contractor', () => {
     const dims = { communication: 1, quality: 1, timeliness: 1, collaboration: 1 }
     expect(await call(ctx(CAROL, 'contractor')).reviews.createFinal({ contractId: cId, dimensions: dims, body: 'nope' })).toEqual({ error: 'forbidden' })
     expect(await call(SVC).reviews.provider.list({ contractRef: cId })).toEqual({ error: 'forbidden' }) // no boardRef
+  })
+})
+
+/**
+ * P0 notification wiring (the 2026-06-19 matrix card) — the silent high-signal events now reach the recipient.
+ * Driven through the stores directly (like the payments block). In tests Resend is stubbed, so we assert the
+ * in-app Notification row landed; the email is best-effort on the same call. Placed last: approving PAT flips
+ * their vetting state, and nothing below depends on PAT being an applicant.
+ */
+describe('P0 notifications — silent high-signal events', () => {
+  it('vetting approval notifies the newly-vetted contractor (the #1 conversion lever)', async () => {
+    await approve(ADMIN, PAT)
+    const note = await prisma.notification.findFirst({ where: { userId: PAT, type: 'identity.vetted' } })
+    expect(note).toBeTruthy()
+  })
+
+  it('a bid notifies the listing owner; accepting it notifies the bidder', async () => {
+    const created = await createListing(ALICE, { title: 'Wire a deck', description: 'low-voltage', categoryIds: [], budgetType: 'fixed', budgetAmount: 500, boardPartRef: `${RUN}-listing` }, 'client')
+    const sub = await submitBid(BOB, created.listingId, { rateType: 'fixed', amount: 450 })
+    expect('bidId' in sub).toBe(true)
+    const ownerNote = await prisma.notification.findFirst({ where: { userId: ALICE, type: 'bid.submitted' } })
+    expect(ownerNote).toBeTruthy()
+    expect(await acceptBid(ALICE, (sub as { bidId: string }).bidId)).toEqual({ ok: true })
+    const bidderNote = await prisma.notification.findFirst({ where: { userId: BOB, type: 'bid.accepted' } })
+    expect(bidderNote).toBeTruthy()
   })
 })

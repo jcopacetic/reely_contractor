@@ -10,6 +10,7 @@ import { emit } from '../../events'
 import { env } from '../../env'
 import { createConnectAccount, onboardingLink, accountStatus, chargeClient, transferToContractor, stripeConfigured, createCustomer, createSetupIntent, createSetupCheckout, attachDefaultPaymentMethod, dashboardLoginLink } from '../../clients/stripe'
 import { recordLedger } from './ledger'
+import { notifyNow } from '../../notify-now'
 import { billableSeconds, pausedIntervalsForContract } from './paused'
 import { autoSuspendClientOnDecline } from '../governance/store'
 import { notifyDisputeOpened, notifyDisputeResolved } from './disputes'
@@ -110,6 +111,19 @@ export async function chargeDueCycles(now = new Date()): Promise<{ charged: numb
     if (res.status === 'no_payment_method') {
       // No card on file — leave the cycle in its window; it bills on a later tick once the client adds one.
       await emit('payments', 'charge.awaiting_payment_method', c.contract.clientUserId, { cycleId: c.id }, 'system')
+      // Needs-action, money-blocking: the contractor can't be paid until a card is on file. Email the client
+      // (they live in Board — no deep link, so ctaHref:null), with an in-app row as a backstop.
+      await notifyNow(c.contract.clientUserId, {
+        type: 'billing.card_needed',
+        title: 'Add a payment method to pay your contractor',
+        subject: 'Action needed: add a card to your Reely contract',
+        lines: [
+          'A weekly invoice is ready to bill on one of your contracts, but there’s no card on file — so your contractor can’t be paid yet.',
+          'Open your project in Reely and add a payment method; the invoice will charge automatically on the next run.',
+        ],
+        ctaHref: null,
+        payload: { cycleId: c.id },
+      }).catch(() => {})
       continue
     }
     const chargeStatus = !live ? 'succeeded' : res.status === 'failed' ? 'failed' : 'pending'
@@ -125,6 +139,7 @@ export async function chargeDueCycles(now = new Date()): Promise<{ charged: numb
       await prisma.billingCycle.update({ where: { id: c.id }, data: { status: 'charged', chargedAt: new Date() } })
       await recordLedger({ kind: 'charge', cycleId: c.id, clientUserId: c.contract.clientUserId, contractorUserId: c.contract.contractorUserId, gross, fee: take, net, chargeId: charge.id, stripePaymentIntentId: res.paymentIntentId, stripeTransferId: tr.transferId, succeeded: true, description: `Weekly contractor work — cycle ${c.id}`, idempotencyKey: `ledger:charge:${charge.id}` })
       await emit('payments', 'payment.charged', c.contract.contractorUserId, { cycleId: c.id, net }, 'system')
+      await notifyContractorPaid(c.contract.contractorUserId, net, c.id)
     }
     // Live: the charge row (pending) excludes the cycle from re-charging; the webhook flips it on payment_intent.succeeded.
     charged++
@@ -256,6 +271,25 @@ async function markChargeSucceeded(paymentIntentId: string): Promise<void> {
   await prisma.payout.upsert({ where: { chargeId: charge.id }, update: {}, create: { chargeId: charge.id, stripeTransferId: tr.transferId, contractorUserId: charge.contractorUserId, amount: net, status: 'paid' } })
   await recordLedger({ kind: 'charge', cycleId: charge.billingCycleId, clientUserId: charge.clientUserId, contractorUserId: charge.contractorUserId, gross: Number(charge.grossAmount), fee: Number(charge.takeRateAmount), net, chargeId: charge.id, stripePaymentIntentId: paymentIntentId, stripeTransferId: tr.transferId, succeeded: true, description: `Weekly contractor work — cycle ${charge.billingCycleId}`, idempotencyKey: `ledger:charge:${charge.id}` })
   await emit('payments', 'payment.charged', charge.contractorUserId, { cycleId: charge.billingCycleId, net }, 'system')
+  await notifyContractorPaid(charge.contractorUserId, net, charge.billingCycleId)
+}
+
+/** Money-in: tell the contractor a weekly invoice settled and a payout is on its way. Immediate email + in-app.
+ *  Fired from both the stub path and the live webhook (only one runs per environment, so never double-sends). */
+async function notifyContractorPaid(contractorUserId: string, net: number, cycleId: string): Promise<void> {
+  const amount = net.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  await notifyNow(contractorUserId, {
+    type: 'payment.received',
+    title: `You were paid $${amount}`,
+    subject: 'You got paid on Reely',
+    lines: [
+      `A weekly invoice settled — $${amount} is on its way to your connected payout account.`,
+      'You can see the breakdown and payout status under Payouts.',
+    ],
+    ctaHref: `${env.APP_BASE_URL}/contractor/payouts`,
+    ctaLabel: 'View your payouts',
+    payload: { cycleId, amount: net },
+  }).catch(() => {})
 }
 
 /**

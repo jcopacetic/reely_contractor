@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto'
 import { prisma, ensureIdentity, Prisma, type ActorType } from '@contractor/db'
 import { setContractorFlag } from '../../clerk'
+import { notifyNow } from '../../notify-now'
 
 const INVITE_EXPIRY_DAYS = 30
 
@@ -69,6 +70,17 @@ export async function approve(adminId: string, targetUserId: string) {
   await prisma.application.updateMany({ where: { clerkUserId: targetUserId, status: { in: ['submitted', 'in_review'] } }, data: { status: 'approved', reviewerId: adminId, decidedAt: new Date() } })
   await setContractorFlag(targetUserId, true)
   await record('contractor.approved', adminId, 'admin', { userId: targetUserId })
+  // The #1 conversion lever: a vetted contractor who's never told they're in does nothing. Immediate email + in-app.
+  await notifyNow(targetUserId, {
+    type: 'identity.vetted',
+    title: 'You’re vetted — welcome to the Reely contractor club',
+    subject: 'You’re in — your Reely contractor account is approved',
+    lines: [
+      'Your application was approved — you’re now a vetted Reely contractor.',
+      'The job feed, the community, and your public profile are all open to you. Finish your profile so clients can find and hire you.',
+    ],
+    ctaLabel: 'Open your dashboard', // ctaHref defaults to /contractor
+  }).catch(() => {})
   return { ok: true as const }
 }
 

@@ -8,7 +8,9 @@
  */
 import { prisma } from '@contractor/db'
 import { emit } from '../../events'
+import { env } from '../../env'
 import { inAppEnabled } from '../notifications/store'
+import { notifyNow } from '../../notify-now'
 
 export const MAX_BIDS_PER_LISTING = 100
 
@@ -152,7 +154,7 @@ export type SubmitBidInput = { rateType: BudgetType; amount: number; hoursEstima
 
 /** A vetted contractor bids on an open listing. One can't bid on their own listing; caps at MAX_BIDS. */
 export async function submitBid(bidderUserId: string, listingId: string, input: SubmitBidInput): Promise<{ bidId: string } | { error: string }> {
-  const l = await prisma.listing.findFirst({ where: { id: listingId, deletedAt: null }, select: { ownerUserId: true, status: true } })
+  const l = await prisma.listing.findFirst({ where: { id: listingId, deletedAt: null }, select: { ownerUserId: true, status: true, title: true } })
   if (!l) return { error: 'not_found' }
   if (l.status !== 'open') return { error: 'not_open' }
   if (l.ownerUserId === bidderUserId) return { error: 'own_listing' }
@@ -163,6 +165,13 @@ export async function submitBid(bidderUserId: string, listingId: string, input: 
     select: { id: true },
   })
   await emit('marketplace', 'bid.submitted', bidderUserId, { listingId, bidId: bid.id })
+  // In-app only (a listing can take up to MAX_BIDS_PER_LISTING bids — emailing each would flood the owner).
+  // Respects the owner's hire-category pref; fire-and-forget.
+  if (await inAppEnabled(l.ownerUserId, 'hire')) {
+    await prisma.notification.create({
+      data: { userId: l.ownerUserId, type: 'bid.submitted', payload: { ceremony: 'hire', title: `New bid on “${l.title}”`, listingId, bidId: bid.id } },
+    }).catch(() => {})
+  }
   return { bidId: bid.id }
 }
 
@@ -177,8 +186,8 @@ export async function withdrawBid(bidderUserId: string, bidId: string): Promise<
 }
 
 /** Internal owner-or-service bid transition. `byOwner` null = provider/service path (trusted, scope = Board-originated). */
-async function transitionBid(bidId: string, to: BidStatus, ownerUserId: string | null): Promise<{ listingId: string; bidderUserId: string; ownerUserId: string } | { error: string }> {
-  const b = await prisma.bid.findUnique({ where: { id: bidId }, select: { status: true, bidderUserId: true, listing: { select: { id: true, ownerUserId: true, boardPartRef: true } } } })
+async function transitionBid(bidId: string, to: BidStatus, ownerUserId: string | null): Promise<{ listingId: string; bidderUserId: string; ownerUserId: string; listingTitle: string } | { error: string }> {
+  const b = await prisma.bid.findUnique({ where: { id: bidId }, select: { status: true, bidderUserId: true, listing: { select: { id: true, ownerUserId: true, boardPartRef: true, title: true } } } })
   if (!b) return { error: 'not_found' }
   if (ownerUserId === null) {
     // provider path: only Board-originated listings
@@ -189,7 +198,7 @@ async function transitionBid(bidId: string, to: BidStatus, ownerUserId: string |
   if (b.status !== 'submitted' && b.status !== 'countered') return { error: 'not_active' }
   if (to === 'countered' && b.status !== 'submitted') return { error: 'bad_transition' }
   await prisma.bid.update({ where: { id: bidId }, data: { status: to as never } })
-  return { listingId: b.listing.id, bidderUserId: b.bidderUserId, ownerUserId: b.listing.ownerUserId }
+  return { listingId: b.listing.id, bidderUserId: b.bidderUserId, ownerUserId: b.listing.ownerUserId, listingTitle: b.listing.title }
 }
 
 /** Owner counters a bid → status countered; the negotiation continues in the hire-loop thread (messaging, later). */
@@ -214,6 +223,19 @@ export async function acceptBid(ownerUserId: string | null, bidId: string): Prom
   if ('error' in r) return r
   await prisma.listing.update({ where: { id: r.listingId }, data: { status: 'filled' } })
   await emit('marketplace', 'bid.accepted', r.ownerUserId, { bidId, listingId: r.listingId, bidderUserId: r.bidderUserId }, ownerUserId === null ? 'client' : 'contractor')
+  // High-signal, one recipient: tell the winning bidder. Immediate email + in-app.
+  await notifyNow(r.bidderUserId, {
+    type: 'bid.accepted',
+    title: `Your bid was accepted — “${r.listingTitle}”`,
+    subject: 'Your Reely bid was accepted',
+    lines: [
+      `Good news — your bid on “${r.listingTitle}” was accepted.`,
+      'The contract is being set up next. Head to your bids to see the details and get started.',
+    ],
+    ctaHref: `${env.APP_BASE_URL}/contractor/bids`,
+    ctaLabel: 'View your bids',
+    payload: { listingId: r.listingId, bidId },
+  }).catch(() => {})
   return { ok: true }
 }
 
