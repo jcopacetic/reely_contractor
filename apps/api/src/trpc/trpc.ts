@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { prisma, type DbActor } from '@contractor/db'
 import { env, type Env } from '../env'
@@ -32,13 +32,19 @@ export function resolveApiContext(
       : rawRole === 'contractor'
         ? 'contractor'
         : 'applicant'
-  const serviceKey = headers['x-contractor-service-key']
   return {
     clerkUserId: str(headers['x-acting-user']),
     role,
-    serviceCaller: Boolean(e.CONTRACTOR_SERVICE_KEY) && serviceKey === e.CONTRACTOR_SERVICE_KEY,
+    serviceCaller: serviceKeyMatches(headers['x-contractor-service-key'], e.CONTRACTOR_SERVICE_KEY),
     extensionToken: str(headers['x-extension-token']),
   }
+}
+
+/** Constant-time service-key check — hash both sides to a fixed length so there's no length leak and
+ *  timingSafeEqual never throws on unequal lengths. Fails closed when the key is unset or non-string. */
+function serviceKeyMatches(provided: unknown, expected: string | undefined): boolean {
+  if (!expected || typeof provided !== 'string') return false
+  return timingSafeEqual(createHash('sha256').update(provided).digest(), createHash('sha256').update(expected).digest())
 }
 
 /** Map the resolved context to the @contractor/db RLS actor (app.actor + app.actor_user GUCs). */
