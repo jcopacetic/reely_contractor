@@ -5,6 +5,9 @@ import type { ApiContext, ActorRole } from '../trpc/trpc'
 import { sweepCycle, chargeDueCycles, listCycles, raiseCycleDispute, startOnboarding, myPayoutAccount, providerListCycles } from '../modules/payments/store'
 import { createListing, submitBid, acceptBid } from '../modules/marketplace/store'
 import { approve } from '../modules/contractor-identity/store'
+import { createContract } from '../modules/contracts/store'
+import { toggleFollow } from '../modules/graph/store'
+import { createPost, addComment } from '../modules/feed/store'
 
 /**
  * DB-backed security e2e — the contractor node's "definition of done" invariants against real Postgres,
@@ -64,6 +67,8 @@ afterAll(async () => {
   await prisma.hireRequest.deleteMany({ where: { contractorUserId: { in: users } } })
   await prisma.skillCategory.deleteMany({ where: { OR: [{ requestedBy: { in: users } }, { name: { contains: RUN } }] } })
   await prisma.notification.deleteMany({ where: { userId: { in: users } } })
+  await prisma.follow.deleteMany({ where: { OR: [{ followerUserId: { in: users } }, { followeeUserId: { in: users } }] } })
+  await prisma.contractorStats.deleteMany({ where: { clerkUserId: { in: users } } })
   await prisma.contractorProfile.deleteMany({ where: { clerkUserId: { in: users } } })
   await prisma.contractorIdentity.deleteMany({ where: { clerkUserId: { in: users } } })
 })
@@ -713,5 +718,28 @@ describe('P0 notifications — silent high-signal events', () => {
     expect(await acceptBid(ALICE, (sub as { bidId: string }).bidId)).toEqual({ ok: true })
     const bidderNote = await prisma.notification.findFirst({ where: { userId: BOB, type: 'bid.accepted' } })
     expect(bidderNote).toBeTruthy()
+  })
+})
+
+/**
+ * P1 notifications (the 2026-06-19 matrix card, tier P1) — hire + social. contract.created uses the immediate
+ * "you're hired" path; follow/post-comment are in-app-only ambient social rows. (review.created + doc.* go via
+ * the notify.ts allow-list, covered by notify.test.ts.) Placed last; rows cleaned in afterAll.
+ */
+describe('P1 notifications — hire + social', () => {
+  it('a new contract notifies the hired contractor', async () => {
+    const r = await createContract({ clientUserId: CAROL, contractorUserId: BOB, title: 'P1 build', rateType: 'hourly', rateAmount: 100 })
+    expect('contractId' in r).toBe(true)
+    expect(await prisma.notification.findFirst({ where: { userId: BOB, type: 'contract.created' } })).toBeTruthy()
+  })
+
+  it('a follow notifies the followee; a post comment notifies the author (in-app social)', async () => {
+    await toggleFollow(CAROL, BOB)
+    expect(await prisma.notification.findFirst({ where: { userId: BOB, type: 'follow.created' } })).toBeTruthy()
+    await toggleFollow(CAROL, BOB) // un-follow → remove the edge
+
+    const post = await createPost(ALICE, 'P1 hello')
+    await addComment(BOB, post.id, 'nice work')
+    expect(await prisma.notification.findFirst({ where: { userId: ALICE, type: 'comment.created' } })).toBeTruthy()
   })
 })

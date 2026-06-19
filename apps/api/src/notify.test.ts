@@ -27,6 +27,11 @@ const NOTIFIABLE_TYPES = [
   'change_request.agreed',
   'charter.kicked_off',
   'charter.closed_out',
+  // P1 contract-scoped additions (counterparty-routed):
+  'review.created',
+  'doc.added',
+  'doc.signed',
+  'doc.executed',
 ]
 
 describe('isNotifiable', () => {
@@ -36,9 +41,9 @@ describe('isNotifiable', () => {
     }
   })
 
-  it('classifies exactly 13 notifiable event types (guards against silent map drift)', () => {
+  it('classifies exactly 17 notifiable event types (guards against silent map drift)', () => {
     const hits = NOTIFIABLE_TYPES.filter((t) => isNotifiable(t))
-    expect(hits).toHaveLength(13)
+    expect(hits).toHaveLength(17)
   })
 
   it('returns false for an unknown / unlisted event type', () => {

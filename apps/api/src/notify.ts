@@ -27,6 +27,12 @@ const NOTIFY: Record<string, Notifiable> = {
   'change_request.agreed': { ceremony: 'change_request', title: 'Change request agreed' },
   'charter.kicked_off': { ceremony: 'charter', title: 'Kickoff charter agreed' },
   'charter.closed_out': { ceremony: 'charter', title: 'Contract closed out' },
+  // P1: contract-scoped feedback + documents. recipientFor routes to the counterparty (review.created is
+  // system-actor → the contractor; a doc signed by one party → the other). All carry contractId.
+  'review.created': { ceremony: 'review', title: 'You received a review' },
+  'doc.added': { ceremony: 'document', title: 'A document needs your review' },
+  'doc.signed': { ceremony: 'document', title: 'A document was signed' },
+  'doc.executed': { ceremony: 'document', title: 'A contract document is fully executed' },
 }
 
 export function isNotifiable(type: string): boolean {

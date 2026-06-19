@@ -6,6 +6,7 @@
  */
 import { prisma, type ReactionType } from '@contractor/db'
 import { emit } from '../../events'
+import { inAppEnabled } from '../notifications/store'
 
 export const REACTIONS = ['like', 'celebrate', 'insightful', 'fire', 'support'] as const
 
@@ -152,6 +153,13 @@ export async function addComment(userId: string, postId: string, body: string, p
   const c = await prisma.comment.create({ data: { postId, userId, body: body.trim(), parentId: parentId ?? null } })
   await prisma.post.update({ where: { id: postId }, data: { commentCount: { increment: 1 } } })
   await emit('feed', 'comment.created', userId, { postId, commentId: c.id })
+  // Notify the post author (in-app only; ambient social). Skip self-comments. Fire-and-forget.
+  const post = await prisma.post.findUnique({ where: { id: postId }, select: { authorUserId: true } })
+  if (post && post.authorUserId !== userId && (await inAppEnabled(post.authorUserId, 'social'))) {
+    await prisma.notification.create({
+      data: { userId: post.authorUserId, type: 'comment.created', payload: { ceremony: 'social', title: 'New comment on your post', postId, commentId: c.id } },
+    }).catch(() => {})
+  }
   return { id: c.id }
 }
 

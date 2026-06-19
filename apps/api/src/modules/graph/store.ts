@@ -6,6 +6,7 @@
  */
 import { prisma } from '@contractor/db'
 import { emit } from '../../events'
+import { inAppEnabled } from '../notifications/store'
 
 /** Toggle a follow edge. Returns the new state + the followee's follower count. */
 export async function toggleFollow(followerUserId: string, followeeUserId: string): Promise<{ following: boolean; followerCount: number } | { error: string }> {
@@ -16,6 +17,12 @@ export async function toggleFollow(followerUserId: string, followeeUserId: strin
   } else {
     await prisma.follow.create({ data: { followerUserId, followeeUserId } })
     await emit('graph', 'follow.created', followerUserId, { followeeUserId })
+    // Social = in-app only (ambient; never email). Defaults on (no 'social' pref category yet). Fire-and-forget.
+    if (await inAppEnabled(followeeUserId, 'social')) {
+      await prisma.notification.create({
+        data: { userId: followeeUserId, type: 'follow.created', payload: { ceremony: 'social', title: 'You have a new follower', followerUserId } },
+      }).catch(() => {})
+    }
   }
   const followerCount = await prisma.follow.count({ where: { followeeUserId } })
   return { following: !existing, followerCount }

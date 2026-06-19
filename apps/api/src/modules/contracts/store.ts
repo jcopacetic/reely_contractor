@@ -9,6 +9,8 @@ import { emit } from '../../events'
 import { getUserEmail } from '../../clerk'
 import { sendEmail } from '../../clients/resend'
 import { stripeConfigured } from '../../clients/stripe'
+import { notifyNow } from '../../notify-now'
+import { env } from '../../env'
 
 export const MAX_ITEMS_PER_CONTRACT = 500
 
@@ -69,6 +71,21 @@ export async function createContract(input: CreateContractInput): Promise<{ cont
     select: { id: true },
   })
   await emit('contracts', 'contract.created', input.contractorUserId, { contractId: c.id, clientUserId: input.clientUserId, contractorUserId: input.contractorUserId, boardRef: input.boardRef ?? null }, 'contractor')
+  // "You're hired": the contract is the concrete hire moment (covers a Board-direct hire that never had a bid
+  // accept). Notify the contractor — high-signal, one recipient. Email + in-app. (The allow-list's counterparty
+  // routing would mis-target the client, so this is explicit.)
+  await notifyNow(input.contractorUserId, {
+    type: 'contract.created',
+    title: `You’re hired — “${input.title.trim() || 'Contract'}”`,
+    subject: 'You’ve been hired on Reely',
+    lines: [
+      `A contract is now active: “${input.title.trim() || 'Contract'}”.`,
+      'Open it to review the scope and rate, then start logging time when you begin.',
+    ],
+    ctaHref: `${env.APP_BASE_URL}/contractor/contracts`,
+    ctaLabel: 'View the contract',
+    payload: { contractId: c.id },
+  }).catch(() => {})
   return { contractId: c.id }
 }
 

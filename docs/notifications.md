@@ -28,6 +28,19 @@ in-app row still lands), so tests assert the row.
 
 Vetting approval is the #1 conversion lever: a vetted contractor who's never told they're in does nothing.
 
+### P1 wiring (the matrix card — hire, feedback, documents, social)
+| Event | Recipient | Channels | Path |
+|---|---|---|---|
+| `contract.created` — a hire's contract is active | the contractor ("you're hired"; covers a Board-direct hire that never had a bid accept) | email + in-app | immediate (`contracts/store.ts` `createContract`) — explicit, since the allow-list's counterparty routing would mis-target the client |
+| `review.created` — a client left a review | the contractor (so they can approve a weekly for display) | in-app + digest | allow-list (`notify.ts`) |
+| `doc.added` — a document needs a signature | the counterparty | in-app + digest | allow-list |
+| `doc.signed` / `doc.executed` | the counterparty | in-app + digest | allow-list |
+| `follow.created` — a new follower | the followed contractor | **in-app only** (ambient social, never email) | direct row (`graph/store.ts`) |
+| `comment.created` (feed post) | the post author (skips self) | **in-app only** | direct row (`feed/store.ts`) |
+
+Social rows use `ceremony:'social'` (no dedicated pref category yet → defaults on). The allow-list additions
+fold into the "Work & ceremonies" category. Reactions emit no event (no notification by design — too noisy).
+
 Pre-existing immediate senders (`payments/notices.ts` `sendNewWeekNotices` / `sendChargeReminders`) inline the
 same shape for the scheduled weekly billing nudges; `notify-now.ts` is the shared, CTA-flexible version.
 
