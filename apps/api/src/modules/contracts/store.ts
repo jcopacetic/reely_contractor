@@ -167,6 +167,11 @@ const TRANSITIONS: Record<ContractStatus, ContractStatus[]> = {
 // ── pause / resume (a normal client control; pausing stops the clock + notifies both parties) ──────────
 type PauseContract = { clientUserId: string; contractorUserId: string; title: string; status: string }
 
+/** Minimal HTML-escape for user-controlled text (contract title, first name) interpolated into email HTML. */
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 async function pauseNotify(contractId: string, title: string, clientUserId: string, contractorUserId: string, paused: boolean): Promise<void> {
   const titleLine = paused ? `“${title}” was paused` : `“${title}” was resumed`
   const lines = paused
@@ -175,7 +180,7 @@ async function pauseNotify(contractId: string, title: string, clientUserId: stri
   for (const uid of [clientUserId, contractorUserId]) {
     await prisma.notification.create({ data: { userId: uid, type: paused ? 'contract.paused' : 'contract.resumed', payload: { ceremony: 'account', title: titleLine, contractId }, emailedAt: new Date() } }).catch(() => {})
     const who = await getUserEmail(uid).catch(() => null)
-    if (who) await sendEmail({ to: who.email, subject: titleLine, html: `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.55"><p>Hi ${who.firstName ?? 'there'},</p>${lines.map((l) => `<p>${l}</p>`).join('')}<p style="color:#888">— Reely</p></div>`, text: [`Hi ${who.firstName ?? 'there'},`, '', ...lines, '', '— Reely'].join('\n') }).catch(() => {})
+    if (who) await sendEmail({ to: who.email, subject: titleLine, html: `<div style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.55"><p>Hi ${esc(who.firstName ?? 'there')},</p>${lines.map((l) => `<p>${esc(l)}</p>`).join('')}<p style="color:#888">— Reely</p></div>`, text: [`Hi ${who.firstName ?? 'there'},`, '', ...lines, '', '— Reely'].join('\n') }).catch(() => {})
   }
 }
 
