@@ -5,6 +5,7 @@ import { env } from './env'
 import { appRouter } from './trpc/router'
 import { resolveApiContext, type ApiContext } from './trpc/trpc'
 import { registerStripe } from './webhooks/stripe'
+import { rateLimit, clientIp } from './lib/rate-limit'
 
 const SERVICE = 'contractor-api'
 
@@ -28,6 +29,24 @@ async function main() {
       const ok = ALLOWED_ORIGINS.includes(origin) || host.endsWith('.vercel.app') || (env.NODE_ENV !== 'production' && host === 'localhost')
       cb(null, ok)
     },
+  })
+
+  // Per-IP rate limit on the UNAUTHENTICATED surface (probe floods, webhook bombing) — defense-in-depth
+  // behind the Vercel WAF. Trusted service callers (the web app) carry x-contractor-service-key and are
+  // EXEMPT, so legit traffic is never throttled; /health is skipped. The browser-timer extension's own
+  // traffic is per-user and well under the cap.
+  const RL_MAX = Number(process.env.API_RATE_LIMIT_MAX) || 120 // requests
+  const RL_WINDOW = 60_000 // per 60s, per IP
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.url === '/health') return
+    const ctx = await resolveApiContext(req.headers as Record<string, unknown>)
+    if (ctx.serviceCaller) return
+    const ip = clientIp(req.headers as Record<string, unknown>, req.ip)
+    const verdict = rateLimit(`api:${ip}`, RL_MAX, RL_WINDOW)
+    if (!verdict.ok) {
+      reply.header('Retry-After', String(verdict.retryAfter))
+      return reply.code(429).send({ error: 'rate_limited', retryAfter: verdict.retryAfter })
+    }
   })
 
   const createContext = async ({ req }: { req: { headers: Record<string, unknown> } }): Promise<ApiContext> =>
